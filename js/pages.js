@@ -148,7 +148,7 @@
       '<section class="card plan-head"><div class="ph-main"><div class="badges">' + '<span class="tag">' + esc(App.fundName(p.FundCode)) + '</span> ' + App.badge(p.Status) + ' ' + App.badge(c.execState) + (p.IsDeleted ? ' <span class="badge red">ถูกลบ</span>' : '') + '</div>' +
         '<h1>' + (p.Seq ? '<span class="muted">#' + esc(p.Seq) + '</span> ' : '') + esc(p.Name) + '</h1>' + (p.ProjectTitle ? '<p class="muted">โครงการ' + (p.ProjectNo ? ' ที่ ' + esc(p.ProjectNo) : '') + ': ' + esc(p.ProjectTitle) + '</p>' : '') +
         '<div class="meta"><div><span class="muted">ผู้รับผิดชอบ</span> ' + esc(p.Owner) + '</div><div><span class="muted">กลุ่มงาน</span> ' + esc(p.Department || '-') + '</div><div><span class="muted">ประเภทแผน</span> ' + esc(App.lookup('planTypes', p.PlanType) || '-') + '</div>' +
-        (p.ReturnDate ? '<div><span class="muted">ส่งคืนแผนเมื่อ</span> ' + App.date(p.ReturnDate) + '</div>' : '') + '</div><div class="meta strat">' + stratHtml + '</div>' + (p.Note ? '<p class="note">📝 ' + esc(p.Note) + '</p>' : '') + '</div>' +
+        (p.ReturnDate ? '<div><span class="muted">ส่งคืนแผนเมื่อ</span> ' + App.date(p.ReturnDate) + '</div>' : '') + '</div>' + capLine(c) + '<div class="meta strat">' + stratHtml + '</div>' + (p.Note ? '<p class="note">📝 ' + esc(p.Note) + '</p>' : '') + '</div>' +
         '<div class="ph-actions">' + (edit ? '<button class="btn" data-act="editPlan"><i class="fas fa-pen"></i> แก้ไขแผน</button>' + '<button class="btn" data-act="summary">' + (p.SummarySent ? '✔ ส่งสรุปแล้ว ' + App.date(p.SummarySentDate) : '📄 ส่งสรุปโครงการ') + '</button>' : (p.SummarySent ? '<span class="badge green">ส่งสรุปแล้ว ' + App.date(p.SummarySentDate) + '</span>' : '')) +
         (p.SummaryFileUrl && safeUrl(p.SummaryFileUrl) ? '<a class="btn ghost" target="_blank" rel="noopener" href="' + esc(safeUrl(p.SummaryFileUrl)) + '">เปิดไฟล์สรุป</a>' : '') +
         '<button class="btn ghost" data-act="history"><i class="fas fa-clock-rotate-left"></i> ประวัติการแก้ไข</button>' + (edit ? '<button class="btn ghost" data-act="dupPlanOne">⧉ คัดลอกไปปีงบใหม่</button>' : '') +
@@ -165,11 +165,19 @@
     if (App.attach) App.attach.mountCard(view.querySelector('#att-card'), g, edit);
   };
 
+  /** แถบวงเงินรวมโครงการ: วงเงิน · แจกแจงเป็นกิจกรรมแล้ว · ยังไม่แจกแจง */
+  function capLine(c) {
+    if (!c || !(c.cap > 0)) return '';
+    const m = v => App.money(v, 0), pct = Math.min(100, c.cap > 0 ? Math.round(c.allocated / c.cap * 100) : 0);
+    return '<div class="cap-line"><div><i class="fas fa-vault"></i> <b>วงเงินรวมโครงการ ' + m(c.cap) + ' บาท</b> <span class="muted">· แจกแจงเป็นกิจกรรมแล้ว ' + m(c.allocated) + ' · ' +
+      (c.overCap > 0 ? '<b class="neg">เกินวงเงิน ' + m(c.overCap) + '</b>' : 'ยังไม่แจกแจง ' + m(c.unallocated)) + '</span></div><div class="bar"><i style="width:' + pct + '%"></i></div></div>';
+  }
   // ===================================================================== ตรวจความพร้อมของแผน (ฝั่งหน้าเว็บ)
   function readiness(g) {
     const p = g.plan, acts = g.activities || [], fund = App.fund(p.FundCode), out = [];
     const live = acts.filter(a => !(a.calc && a.calc.excluded));
-    if (!acts.length) out.push(['bad', 'ยังไม่มีกิจกรรม', 'เพิ่มกิจกรรมอย่างน้อย 1 รายการ']);
+    if (!acts.length) out.push(g.calc && g.calc.cap > 0 ? ['info', 'ตั้งวงเงินรวมโครงการไว้แล้ว ยังไม่มีกิจกรรม', 'เพิ่มกิจกรรมและแจกแจงงบเมื่อแผนงบของ รพ. ออก'] : ['bad', 'ยังไม่มีกิจกรรม', 'เพิ่มกิจกรรมอย่างน้อย 1 รายการ']);
+    if (g.calc && g.calc.overCap > 0) out.push(['warn', 'งบกิจกรรมรวมเกินวงเงินโครงการ ' + App.money(g.calc.overCap, 0) + ' บาท', 'ตรวจสอบงบกิจกรรม หรือแก้ไขวงเงินรวมโครงการ']);
     const nb = live.filter(a => a.act.Status === 'ปกติ' && !(a.calc.plannedBudget > 0));
     if (nb.length) out.push(['bad', nb.length + ' กิจกรรมสถานะ "ปกติ" แต่ไม่มีงบ', 'ใส่หมวดงบ หรือเปลี่ยนสถานะเป็น "ไม่ใช้งบประมาณ"']);
     const nd = live.filter(a => !a.act.PlanStart);
@@ -246,6 +254,8 @@
       App.field({ name: 'StrategyHosp', label: 'ยุทธศาสตร์ รพ.สันทราย', type: 'select', options: App.activeOpts('hosp').map(o => ({ v: o.v, l: o.v + '. ' + o.l })), value: plan.StrategyHosp, full: true }) + '</div>' +
       '<div id="strat-region" class="full" hidden>' + App.field({ name: 'StrategyRegion', label: 'ยุทธศาสตร์ระดับเขต', value: plan.StrategyRegion || '', full: true }) + '</div>' +
       App.field({ name: 'Status', label: 'สถานะแผน', type: 'select', noBlank: true, options: App.masters().enums.planStatuses, value: plan.Status }) + App.field({ name: 'ReturnDate', label: 'วันที่ส่งคืนแผน (อนุมัติแล้ว)', type: 'date', value: plan.ReturnDate || '' }) +
+      App.field({ name: 'BudgetCap', label: 'วงเงินรวมโครงการ (บาท)', type: 'number', step: '0.01', value: plan.BudgetCap || '', placeholder: 'เช่น 150000', full: true,
+        hint: 'ตั้งวงเงินทั้งโครงการไว้ก่อนได้ แม้แผนงบ รพ. ยังไม่ออก/ยังไม่มีกิจกรรม — ส่วนที่ยังไม่แจกแจงเป็นกิจกรรมจะนับเป็นงบตามแผนของโครงการ เมื่อเพิ่มกิจกรรมแล้วยอดจะถูกหักออกจากวงเงินนี้อัตโนมัติ (เว้นว่าง = ไม่กำหนด)' }) +
       App.field({ name: 'Note', label: 'หมายเหตุ', type: 'textarea', value: plan.Note || '', full: true }) +
       '<div class="field full"><label>เอกสารแนบโครงการ <small class="muted">(ไฟล์ทุกประเภท และ/หรือลิงก์ Google Drive)</small></label><div id="att-host"></div></div></div>';
     let attCtl = null;

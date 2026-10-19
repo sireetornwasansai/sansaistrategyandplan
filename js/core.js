@@ -111,8 +111,9 @@
       '<footer>' + (o.hideSubmit ? '' : '<button type="button" class="btn ghost" data-close>ยกเลิก</button><button type="submit" class="btn primary" data-submit>' + esc(o.submitLabel || 'บันทึก') + '</button>') +
       (o.hideSubmit ? '<button type="button" class="btn ghost" data-close>ปิด</button>' : '') + '</footer></form>';
     document.body.appendChild(d);
-    d.addEventListener('click', e => { if (e.target.closest('[data-close]') || e.target === d) closeDialog(d); });
-    d.addEventListener('cancel', e => { e.preventDefault(); closeDialog(d); });
+    // ปิดได้เฉพาะกดปุ่ม ✕ / ยกเลิก / ปิด เท่านั้น — คลิกพื้นหลังหรือกด Esc ไม่ปิด (กันข้อมูลที่กรอกหายจากการคลิกพลาด)
+    d.addEventListener('click', e => { if (e.target.closest('[data-close]')) closeDialog(d); });
+    d.addEventListener('cancel', e => { e.preventDefault(); });
     const form = d.querySelector('form'), errBox = d.querySelector('.form-error');
     d.showError = m => { errBox.textContent = m; errBox.hidden = !m; };
     form.addEventListener('submit', async e => {
