@@ -2,7 +2,7 @@
    - ไม่แตะคำขอ API (POST / ข้ามโดเมนไป Apps Script) เด็ดขาด เพื่อไม่ให้ข้อมูลหรือสิทธิ์ค้างแคช
    - ไฟล์ของแอป: network-first (ได้เวอร์ชันล่าสุดเสมอเมื่อออนไลน์) สำรองด้วยแคชเมื่อออฟไลน์
    เมื่อออกเวอร์ชันใหม่ ให้เปลี่ยน VERSION เพื่อล้างแคชเก่า */
-const VERSION = 'plan-sansai-v2.8.0';
+const VERSION = 'plan-sansai-v2.8.1';
 const SHELL = ['./', 'index.html', 'config.js', 'assets/style.css', 'assets/access.css', 'assets/attach.css', 'assets/favicon.png', 'assets/logo.png', 'assets/logo-mark.png',
   'js/core.js', 'js/pages.js', 'js/attachments.js', 'js/boards.js', 'js/modules.js', 'js/admin.js', 'js/profile.js', 'js/access.js', 'js/pwa.js', 'js/main.js', 'offline.html'];
 
