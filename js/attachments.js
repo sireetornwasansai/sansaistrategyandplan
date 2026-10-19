@@ -153,7 +153,8 @@
           onSubmit: async d => { const v = App.values(d); const r = await App.api('att.update', { id: a.id, title: v.title, note: v.note }); Object.assign(a, r.att, { warn: a.warn }); render(); App.toast('บันทึกแล้ว', 'success'); } });
       } else if (act === 'del' && a) {
         if (await App.confirm('ลบเอกสารแนบ “' + a.title + '” ออกจากแผน ?\n(ไฟล์ใน Google Drive ยังคงอยู่ ผู้ดูแลระบบกู้คืนได้)', 'ลบ', true)) {
-          await App.api('att.delete', { id: a.id }); saved = saved.filter(x => x.id !== a.id); render(); App.toast('ลบเอกสารแนบแล้ว', 'success');
+          try { await App.api('att.delete', { id: a.id }); saved = saved.filter(x => x.id !== a.id); render(); App.toast('ลบเอกสารแนบแล้ว', 'success'); }
+          catch (err) { App.fail(err); }
         }
       }
     });

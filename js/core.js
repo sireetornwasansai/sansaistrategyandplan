@@ -81,7 +81,7 @@
   App.api = async function (action, params, opts) {
     for (let i = 0; ; i++) {
       try { return await apiOnce(action, params, opts); }
-      catch (e) { if (READ_RE.test(action) && i < 2 && /เชื่อมต่อเซิร์ฟเวอร์ไม่ได้|หมดเวลา/.test((e && e.message) || '')) { await new Promise(r => setTimeout(r, 900 * (i + 1))); continue; } throw e; }
+      catch (e) { if (e && /ไม่รู้จักคำสั่ง/.test(e.message || '')) e.message = 'ระบบหลังบ้าน (Apps Script) ยังเป็นเวอร์ชันเก่า ไม่รองรับคำสั่ง ' + action + ' — แจ้งแอดมินให้วางโค้ด Code.gs v2.8.0 แล้ว Deploy เป็น “เวอร์ชันใหม่” อีกครั้ง'; if (READ_RE.test(action) && i < 2 && /เชื่อมต่อเซิร์ฟเวอร์ไม่ได้|หมดเวลา/.test((e && e.message) || '')) { await new Promise(r => setTimeout(r, 900 * (i + 1))); continue; } throw e; }
     }
   };
   // แถบแจ้งเมื่อไม่มีอินเทอร์เน็ต
