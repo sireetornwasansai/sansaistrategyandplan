@@ -245,7 +245,7 @@
     const d = await App.api('milestones.list', { year: S.year });
     const f = memo.ms, items = d.items, c = d.counts; let limit = 36;
     const funds = Array.from(new Set(items.map(i => i.fund)));
-    view.innerHTML = App.pageHead('หมุดหมายสำคัญ', 'ปีงบประมาณ ' + esc(S.year) + ' · วันสิ้นสุดกิจกรรมสุดท้าย และกำหนดส่งสรุปโครงการ (สิ้นสุด + ' + esc(d.grace) + ' วัน) ของทุกแผน', yearSelect()) +
+    view.innerHTML = App.pageHead('หมุดหมายสำคัญ', 'ปีงบประมาณ ' + esc(S.year) + ' · วันสิ้นสุดกิจกรรมสุดท้าย และกำหนดส่งสรุปโครงการ (ทุกแผนส่งภายใน ' + esc((d.sumWindow || {}).label || '1 ส.ค. – 30 ก.ย.') + ')', yearSelect()) +
       '<div class="xstats xstats4">' + stat('หมุดหมายทั้งหมด', c.total, 'จาก ' + (c.total / 2) + ' แผน', 'a') + stat('ใน 30 วันข้างหน้า', c.soon, 'ควรเตรียมการ', 'b') +
       stat('เกินกำหนด', c.overdue, 'รายการที่ควรติดตาม', c.overdue ? 'c warn' : 'c') + stat('เสร็จแล้ว', c.done, c.total ? Math.round(c.done / c.total * 100) + '% ของทั้งหมด' : '—', 'c') + '</div>' +
       '<div class="xbar"><input type="search" id="ms-q" placeholder="ค้นหาแผน/ผู้รับผิดชอบ" value="' + esc(f.q) + '">' +

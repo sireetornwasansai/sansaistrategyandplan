@@ -100,11 +100,12 @@ var DEFAULT_SETTINGS_ = [
   ['CurrentYear', '2569', 'ปีงบประมาณปัจจุบัน (พ.ศ.)'],
   ['ExcludeCancelledFromRate', 'TRUE', 'TRUE = ร้อยละเบิกจ่ายไม่นับงบของกิจกรรมที่ยกเลิก/ไม่เบิก (แนะนำ)'],
   ['UserEditScope', 'all', 'all = เจ้าหน้าที่แก้ไขได้ทุกแผน | own = แก้ได้เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ'],
-  ['SummaryGraceDays', '30', 'จำนวนวันหลังกิจกรรมสุดท้ายสิ้นสุด ก่อนถือว่า "ค้างส่งสรุปโครงการ"'],
+  ['SummaryStartMonth', '8', 'เดือนเริ่มช่วงส่งสรุปโครงการ (1–12) — ทุกโครงการต้องส่งสรุปในช่วงนี้ ค่าตั้งต้น 8 = สิงหาคม'],
   ['FileSharing', 'link', 'link = แชร์ไฟล์หลักฐานแบบใครมีลิงก์เปิดดูได้ | private = ไม่แชร์'],
   ['ImportLocked', 'FALSE', 'TRUE = ล็อกไม่ให้รัน runImport ซ้ำ (ตั้งเป็น TRUE อัตโนมัติหลังนำเข้าเสร็จ)'],
   ['RequireReasonAfterApproval', 'TRUE', 'TRUE = แผนที่อนุมัติแล้ว ต้องระบุเหตุผลทุกครั้งที่แก้งบ/สถานะ/ลบรายการ (บันทึกในประวัติการแก้ไข)'],
-  ['LockClosedPlans', 'TRUE', 'TRUE = แผนสถานะ "ปิด" แก้ไขได้เฉพาะแอดมิน']
+  ['LockClosedPlans', 'TRUE', 'TRUE = แผนสถานะ "ปิด" แก้ไขได้เฉพาะแอดมิน'],
+  ['SummaryEndMonth', '9', 'เดือนสิ้นสุดช่วงส่งสรุปโครงการ (1–12) — เลยสิ้นเดือนนี้แล้วยังไม่ส่ง = ค้างส่งสรุป ค่าตั้งต้น 9 = กันยายน (สิ้นเดือน 30 ก.ย.)']
 ];
 
 var DEFAULT_FUNDS_ = [
@@ -1422,7 +1423,7 @@ function settingsSave_(admin, p) {
   if ((key === 'ExcludeCancelledFromRate' || key === 'ImportLocked' || key === 'RequireReasonAfterApproval' || key === 'LockClosedPlans') && ['TRUE', 'FALSE'].indexOf(val.toUpperCase()) < 0) fail_('VALIDATION', 'ค่าต้องเป็น TRUE หรือ FALSE');
   if (key === 'UserEditScope' && ['all', 'own'].indexOf(val) < 0) fail_('VALIDATION', 'ค่าต้องเป็น all หรือ own');
   if (key === 'FileSharing' && ['link', 'private'].indexOf(val) < 0) fail_('VALIDATION', 'ค่าต้องเป็น link หรือ private');
-  if (key === 'SummaryGraceDays' && !(num_(val) >= 0)) fail_('VALIDATION', 'จำนวนวันต้องเป็นตัวเลข');
+  if ((key === 'SummaryStartMonth' || key === 'SummaryEndMonth') && !(/^\d{1,2}$/.test(val) && num_(val) >= 1 && num_(val) <= 12)) fail_('VALIDATION', 'เดือนต้องเป็นตัวเลข 1–12');
   if (/^(TRUE|FALSE)$/i.test(val)) val = val.toUpperCase();
   var row = findBy_('Settings', 'Key', key);
   if (row) { row.Value = val; update_('Settings', row._row, row); } else insert_('Settings', { Key: key, Value: val, Description: def[2] });
@@ -1471,7 +1472,7 @@ function execState_(c) {
 function buildModel_(year, opts) {
   opts = opts || {};
   var settings = getSettings_();
-  var grace = num_(settings.SummaryGraceDays), today = todayIso_();
+  var today = todayIso_();
   var plans = readAll_('Plans').filter(function (p) { return String(p.Year) === String(year) && (opts.includeDeleted || !bool_(p.IsDeleted)); });
   var planIds = {}; plans.forEach(function (p) { planIds[p.PlanId] = true; });
   var acts = readAll_('Activities').filter(function (a) { return planIds[a.PlanId] && !bool_(a.IsDeleted); });
@@ -1483,7 +1484,7 @@ function buildModel_(year, opts) {
   var planAdjBy = groupBy_(adjAll.filter(function (a) { return !a.ActId; }), 'PlanId');
   var actsBy = groupBy_(acts, 'PlanId');
   var planLevelDisbBy = groupBy_(readAll_('Disbursements').filter(function (d) { return planIds[d.PlanId] && !d.ActId; }), 'PlanId');
-  var fy = fyEndIso_(parseInt(year, 10));
+  var win = summaryWindow_(year);
 
   var out = plans.map(function (p) {
     var list = (actsBy[p.PlanId] || []).slice().sort(function (a, b) { return (num_(a.SortOrder) - num_(b.SortOrder)) || String(a.No).localeCompare(String(b.No)); });
@@ -1515,28 +1516,36 @@ function buildModel_(year, opts) {
     t.activeActCount = items.filter(function (x) { return !x.calc.excluded; }).length;
     t.noDateCount = items.filter(function (x) { return !x.calc.excluded && x.calc.plannedBudget > 0 && !dstr_(x.act.PlanStart); }).length;
     t.noEvidenceCount = items.reduce(function (n, x) { return n + x.disbs.filter(function (d) { return !str_(d.EvidenceUrl); }).length; }, 0);
-    var od = overdueInfo_(p, items, t, today, grace, fy);
+    var od = overdueInfo_(p, items, t, today, win);
     return { plan: p, items: items, planAdjs: pAdj, calc: t, overdue: od };
   });
   return out;
 }
 
-/** กติกา "ค้างส่งสรุปโครงการ" (คำนวณอัตโนมัติ แทนแท็บที่ลอกมือ) */
-function overdueInfo_(p, items, t, today, grace, fyEnd) {
-  var none = { is: false, reason: '', daysLate: 0 };
+/** v2.11: ช่วงส่งสรุปโครงการ "ของทุกโครงการ" = เดือนเริ่ม–เดือนสิ้นสุด ของปีงบประมาณนั้น (ค่าตั้งต้น ส.ค.–ก.ย. = 1 ส.ค. – 30 ก.ย.)
+ *  ปรับได้ที่ Settings: SummaryStartMonth / SummaryEndMonth (1–12) */
+var TH_MON_FULL_ = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+function summaryWindow_(yearBE) {
+  var s = getSettings_(), pad = function (x) { return ('0' + x).slice(-2); };
+  var sm = Math.round(num_(s.SummaryStartMonth)), em = Math.round(num_(s.SummaryEndMonth));
+  if (!(sm >= 1 && sm <= 12)) sm = 8;
+  if (!(em >= 1 && em <= 12)) em = 9;
+  var y = parseInt(yearBE, 10) - 543;                       // ปี ค.ศ. ที่ปีงบประมาณสิ้นสุด (ปีงบ = ต.ค. ปีก่อน – ก.ย.)
+  var calY = function (mon) { return mon >= 10 ? y - 1 : y; };
+  var sy = calY(sm), ey = calY(em);
+  var start = sy + '-' + pad(sm) + '-01';
+  var end = ey + '-' + pad(em) + '-' + pad(new Date(ey, em, 0).getDate());
+  if (end < start) end = start;
+  return { start: start, end: end, label: '1 ' + TH_MON_FULL_[sm] + ' – ' + new Date(ey, em, 0).getDate() + ' ' + TH_MON_FULL_[em], months: TH_MON_FULL_[sm] + '–' + TH_MON_FULL_[em] };
+}
+
+/** กติกา "ค้างส่งสรุปโครงการ" (คำนวณอัตโนมัติ) — v2.11: ทุกโครงการต้องส่งสรุปภายในช่วง ส.ค.–ก.ย. ของปีงบประมาณ
+ *  เลยวันสิ้นสุดช่วงแล้วยังไม่ส่ง = ค้างส่ง · อยู่ในช่วงส่ง (ยังไม่เลยกำหนด) = inWindow · ก่อนช่วงส่ง = ยังไม่ถึงกำหนด */
+function overdueInfo_(p, items, t, today, win) {
+  var none = { is: false, reason: '', daysLate: 0, inWindow: false };
   if (bool_(p.SummarySent) || ['ยกเลิก', 'ร่าง', 'ส่งสรุปแล้ว', 'ปิด'].indexOf(p.Status) >= 0) return none;
-  var active = items.filter(function (x) { return !x.calc.excluded; });
-  if (!active.length && t.netPaid <= 0) return none;
-  var budgeted = active.filter(function (x) { return x.calc.plannedBudget > 0; });
-  var allPaid = budgeted.length > 0 && budgeted.every(function (x) { return x.calc.netPaid >= x.calc.plannedBudget - 0.5; });
-  var lastEnd = '';
-  active.forEach(function (x) { var e = dstr_(x.act.PlanEnd) || dstr_(x.act.PlanStart); if (e && e > lastEnd) lastEnd = e; });
-  if (allPaid) return { is: true, reason: 'เบิกจ่ายครบทุกกิจกรรมแล้ว แต่ยังไม่ส่งสรุปโครงการ', daysLate: lastEnd ? Math.max(0, daysBetween_(lastEnd, today) || 0) : 0 };
-  if (lastEnd) {
-    var late = daysBetween_(lastEnd, today);
-    if (late !== null && late > grace) return { is: true, reason: 'กิจกรรมสุดท้ายสิ้นสุดแล้ว ' + late + ' วัน (เกินกำหนด ' + grace + ' วัน) ยังไม่ส่งสรุป', daysLate: late };
-  }
-  if (today > fyEnd && t.netPaid > 0) return { is: true, reason: 'สิ้นสุดปีงบประมาณแล้ว แต่ยังไม่ส่งสรุปโครงการ', daysLate: Math.max(0, daysBetween_(fyEnd, today) || 0) };
+  if (today > win.end) return { is: true, inWindow: false, reason: 'เลยกำหนดส่งสรุปโครงการ (ต้องส่งภายใน ' + win.label + ') แต่ยังไม่ส่งสรุป', daysLate: Math.max(0, daysBetween_(win.end, today) || 0) };
+  if (today >= win.start) return { is: false, reason: '', daysLate: 0, inWindow: true };
   return none;
 }
 
@@ -2665,9 +2674,9 @@ function actsProgress_(user, p) {
   return { actId: a.ActId, progress: v };
 }
 
-/** milestones.list: หมุดหมายระดับแผน 2 จุด/แผน — (1) กิจกรรมสุดท้ายสิ้นสุด (2) ครบกำหนดส่งสรุปโครงการ (= วันสิ้นสุด + SummaryGraceDays) */
+/** milestones.list: หมุดหมายระดับแผน 2 จุด/แผน — (1) กิจกรรมสุดท้ายสิ้นสุด (2) ครบกำหนดส่งสรุปโครงการ (v2.11: ทุกโครงการ = สิ้นสุดช่วงส่งสรุป ส.ค.–ก.ย. ของปีงบ) */
 function milestonesList_(user, p) {
-  var year = p.year || getSettings_().CurrentYear, today = todayIso_(), grace = num_(getSettings_().SummaryGraceDays), fm = fundMap_();
+  var year = p.year || getSettings_().CurrentYear, today = todayIso_(), win = summaryWindow_(year), fm = fundMap_();
   var q = str_(p.q).toLowerCase();
   var model = buildModel_(year).sort(function (a, b) { return planOrder_(a, b, fm); });
   var items = [];
@@ -2689,10 +2698,10 @@ function milestonesList_(user, p) {
     var e1 = Object.assign({}, base, { id: pl.PlanId + ':end', kind: 'end', title: 'กิจกรรมสุดท้ายของแผนสิ้นสุด', date: lastEnd,
       state: !lastEnd ? 'nodate' : (endDone ? 'done' : (lastEnd < today ? 'overdue' : 'upcoming')) });
     if (!endDone && e1.state === 'overdue' && act.every(function (x) { return x.act.Status === 'เลื่อน'; })) e1.state = 'upcoming';
-    var due = lastEnd ? addDaysIso_(lastEnd, grace) : '';
+    var due = win.end;
     var sdate = dstr_(pl.SummarySentDate);
-    var e2 = Object.assign({}, base, { id: pl.PlanId + ':sum', kind: 'summary', title: 'ส่งสรุปผลการดำเนินงานโครงการ', date: sumDone ? (sdate || due) : due,
-      state: sumDone ? 'done' : (m.overdue.is ? 'overdue' : (!due ? 'nodate' : (due < today ? 'overdue' : 'upcoming'))) });
+    var e2 = Object.assign({}, base, { id: pl.PlanId + ':sum', kind: 'summary', title: 'ส่งสรุปผลการดำเนินงานโครงการ (' + win.months + ')', date: sumDone ? (sdate || due) : due,
+      state: sumDone ? 'done' : (m.overdue.is ? 'overdue' : 'upcoming') });
     if (e2.state === 'overdue' && m.overdue.is) e2.note = m.overdue.reason;
     [e1, e2].forEach(function (e) { e.daysTo = e.date ? daysBetween_(today, e.date) : null; items.push(e); });
   });
@@ -2703,7 +2712,7 @@ function milestonesList_(user, p) {
   });
   var cnt = { total: items.length, done: 0, overdue: 0, upcoming: 0, nodate: 0, soon: 0 };
   items.forEach(function (e) { cnt[e.state]++; if (e.state === 'upcoming' && e.daysTo !== null && e.daysTo <= 30) cnt.soon++; });
-  return { year: String(year), today: today, grace: grace, thresholds: { high: cfgNum_('IMPORTANCE_HIGH_BAHT'), mid: cfgNum_('IMPORTANCE_MID_BAHT') }, items: items, counts: cnt };
+  return { year: String(year), today: today, sumWindow: win, thresholds: { high: cfgNum_('IMPORTANCE_HIGH_BAHT'), mid: cfgNum_('IMPORTANCE_MID_BAHT') }, items: items, counts: cnt };
 }
 
 // ---------------------------------------------------------------------------------
@@ -2901,6 +2910,7 @@ function alertsList_(user, p) {
     if (m.plan.Status === 'ยกเลิก') return;
     if (m.calc.remaining < -0.5) add('high', 'over', 'เบิกจ่ายเกินงบ ' + Math.abs(round2_(m.calc.remaining)).toLocaleString('en-US') + ' บาท', m.plan.Name + ' — ตรวจสอบรายการเบิก หรือขอปรับเพิ่มงบ', m.plan.PlanId, '');
     if (m.overdue.is) add('high', 'summary', 'ค้างส่งสรุปโครงการ', m.plan.Name + ' — ' + m.overdue.reason, m.plan.PlanId, '');
+    else if (m.overdue.inWindow) add('medium', 'summary', 'ถึงช่วงส่งสรุปโครงการ', m.plan.Name + ' — ต้องส่งสรุปภายใน ' + summaryWindow_(year).label, m.plan.PlanId, '');
     var late = 0, soon = [], nodate = 0, badDates = 0;
     m.items.forEach(function (x) {
       if (x.act.Status === 'ยกเลิก') return;
