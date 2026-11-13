@@ -239,7 +239,9 @@
     const isNew = !plan; plan = plan || { Year: S.year, FundCode: '', Status: 'ร่าง' };
     const ppl = App.masters().data.people || [], depts = App.masters().data.departments || [];
     const missions = Array.from(new Set(depts.map(d => d.Mission)));
-    const deptOpts = missions.map(m => '<optgroup label="' + esc(m) + '">' + depts.filter(d => d.Mission === m && d.Active !== false).map(d => '<option' + (d.Name === plan.Department ? ' selected' : '') + ' value="' + esc(d.Name) + '">' + esc(d.Name) + '</option>').join('') + '</optgroup>').join('');
+    const dSeen = {}, dOk = depts.some(d => d.Name === plan.Department && d.Active !== false);
+    const deptOpts = (plan.Department && !dOk ? '<option value="' + esc(plan.Department) + '" selected>' + esc(plan.Department) + ' (ค่าเดิม — ไม่อยู่ในรายการที่ใช้งาน)</option>' : '') +
+      missions.map(m => { const os = depts.filter(d => d.Mission === m && d.Active !== false && !dSeen[d.Name] && (dSeen[d.Name] = true)).map(d => '<option' + (d.Name === plan.Department ? ' selected' : '') + ' value="' + esc(d.Name) + '">' + esc(d.Name) + '</option>').join(''); return os ? '<optgroup label="' + esc(m) + '">' + os + '</optgroup>' : ''; }).join('');
     const html = '<datalist id="dl-people">' + ppl.filter(p => p.Active !== false).map(p => '<option value="' + esc(p.Name) + '">').join('') + '</datalist>' +
       '<div class="form-grid">' +
       App.field({ name: 'Year', label: 'ปีงบประมาณ', type: 'select', noBlank: true, options: App.years(), value: plan.Year, required: true }) +

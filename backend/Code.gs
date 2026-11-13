@@ -1305,7 +1305,7 @@ function usersUpdate_(admin, p) {
     u.Role = p.role;
   }
   if (p.name !== undefined) u.Name = str_(p.name);
-  if (p.department !== undefined) u.Department = cleanText_(p.department, 120).substring(0, 120);
+  if (p.department !== undefined) { var cd = cleanText_(p.department, 120).substring(0, 120); u.Department = masterDept_(cd) || cd; } // ตรงทะเบียน = ใช้ชื่อตามทะเบียน
   if (p.organization !== undefined) u.Organization = cleanText_(p.organization, 120).substring(0, 120);
   if (p.planRole !== undefined) {
     if (p.planRole && !PLAN_ROLES_.some(function (r) { return r.value === p.planRole; })) fail_('VALIDATION', 'หน้าที่ต่อแผนงานไม่ถูกต้อง');
@@ -1316,6 +1316,10 @@ function usersUpdate_(admin, p) {
   if (u.Status === 'approved' && u.Role === 'user') { // v2.11: ให้สิทธิ์เจ้าหน้าที่ได้เมื่อกลุ่มงานตรงทะเบียน (สิทธิ์แก้ไขอิงกลุ่มงาน)
     if (isHospitalUser_(u)) {
       var md = masterDept_(u.Department);
+      if (!md && !str_(u.Department) && str_(u.PersonName)) { // กลุ่มงานว่าง: ยืมจากทะเบียนผู้รับผิดชอบที่ผูกไว้
+        var pm = readAll_('People').filter(function (x) { return normName_(x.Name) === normName_(u.PersonName); })[0];
+        if (pm) md = masterDept_(pm.Department);
+      }
       if (!md) fail_('VALIDATION', 'กลุ่มงาน' + (str_(u.Department) ? ' “' + str_(u.Department) + '”' : 'ยังไม่ได้ระบุ') + ' ไม่ตรงทะเบียนกลุ่มงาน — กรุณาเลือกกลุ่มงานที่ถูกต้องก่อนให้สิทธิ์เจ้าหน้าที่ (ถ้ากลุ่มงานยังไม่มีในทะเบียน ให้เพิ่มที่ ตั้งค่าระบบ › กลุ่มงาน ก่อน)');
       u.Department = md;
     }
@@ -1434,7 +1438,7 @@ var MASTERS_ = {
 
 function mastersGet_() {
   ensureMoph_();
-  var out = { schema: {}, data: {}, limits: { maxUploadMb: cfgNum_('MAX_UPLOAD_MB'), maxAttachMb: cfgNum_('MAX_ATTACH_MB'), maxAttachPerPlan: cfgNum_('MAX_ATTACH_PER_PLAN'), blockedExt: ATT_BLOCKED_EXT_ }, settings: getSettings_(), enums: { planStatuses: PLAN_STATUSES_, actStatuses: ACT_STATUSES_, adjTypes: ADJ_TYPES_, roles: ROLES_, userStatuses: USER_STATUSES_, actExcluded: ACT_EXCLUDED_ } };
+  var out = { schema: {}, data: {}, limits: { maxUploadMb: cfgNum_('MAX_UPLOAD_MB'), maxAttachMb: cfgNum_('MAX_ATTACH_MB'), maxAttachPerPlan: cfgNum_('MAX_ATTACH_PER_PLAN'), blockedExt: ATT_BLOCKED_EXT_ }, settings: getSettings_(), org: orgName_(), enums: { planStatuses: PLAN_STATUSES_, actStatuses: ACT_STATUSES_, adjTypes: ADJ_TYPES_, roles: ROLES_, userStatuses: USER_STATUSES_, actExcluded: ACT_EXCLUDED_ } };
   Object.keys(MASTERS_).forEach(function (k) {
     var m = MASTERS_[k];
     out.schema[k] = { label: m.label, key: m.key, cols: m.cols };
@@ -1470,6 +1474,11 @@ function mastersSave_(admin, p) {
   if (p.table === 'moprog' && !findBy_('StrategyMoph', 'Code', obj.StrategyCode)) fail_('VALIDATION', 'ไม่พบยุทธศาสตร์กระทรวงรหัส ' + obj.StrategyCode);
   if (p.table === 'mopro' && !findBy_('MophProgram', 'Code', obj.ProgramCode)) fail_('VALIDATION', 'ไม่พบแผนงานรหัส ' + obj.ProgramCode);
   if (p.table === 'mokpi' && !findBy_('MophProject', 'Code', obj.ProjectCode)) fail_('VALIDATION', 'ไม่พบโครงการรหัส ' + obj.ProjectCode);
+  if (p.table === 'departments' && p.isNew && readAll_('Departments').some(function (r) { return normDept_(r.Name) === normDept_(obj.Name); })) fail_('VALIDATION', 'มีกลุ่มงานชื่อใกล้เคียงกันอยู่แล้ว (ต่างกันเพียงช่องว่าง/ตัวพิมพ์)');
+  if (p.table === 'people' && obj.Department) { // สิทธิ์แก้ไขอิงกลุ่มงาน: ต้องตรงทะเบียน (ค่าเดิมที่ไม่ตรงทะเบียนและไม่ได้แก้ ยังบันทึกได้)
+    var pd = masterDept_(obj.Department);
+    if (pd) obj.Department = pd; else if (!existing || str_(existing.Department) !== obj.Department) fail_('VALIDATION', 'กลุ่มงาน “' + obj.Department + '” ไม่ตรงทะเบียนกลุ่มงาน — เลือกจากรายการ');
+  }
   if (p.table === 'people' && obj.Email) {
     var dup = readAll_('People').filter(function (r) { return r.Name !== obj.Name && String(r.Email).toLowerCase() === obj.Email.toLowerCase(); });
     if (dup.length) fail_('VALIDATION', 'อีเมลนี้ผูกกับ "' + dup[0].Name + '" อยู่แล้ว');

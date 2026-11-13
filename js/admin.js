@@ -23,7 +23,7 @@
       '<div class="tabs">' + USER_TABS.map(t => '<button class="tab' + (t[0] === tab ? ' on' : '') + '" data-act="userTab" data-id="' + t[0] + '">' + t[1] + ' <span class="count">' + count(t[0]) + '</span></button>').join('') + '</div>' +
       '<div class="card table-card"><div class="table-wrap"><table class="table"><thead><tr><th>ผู้ใช้</th><th>กลุ่มงาน / ผู้รับผิดชอบ</th><th>บทบาท</th><th>สถานะ</th><th>เข้าล่าสุด</th><th></th></tr></thead><tbody>' +
       (rows.length ? rows.map(u => '<tr><td><div class="user-cell">' + (u.Picture ? '<img src="' + esc(u.Picture) + '" alt="" referrerpolicy="no-referrer">' : '<span class="avatar">' + esc((u.Name || u.Email).charAt(0)) + '</span>') + '<div><b>' + esc(u.Name) + '</b><div class="muted small">' + esc(u.Email) + '</div></div></div></td>' +
-        '<td>' + esc(u.Department || '-') + (u.Organization ? '<div class="muted small">' + esc(u.Organization) + '</div>' : '') + (u.PlanRole ? '<div class="muted small"><i class="fas fa-user-tag"></i> ' + esc(u.PlanRole) + '</div>' : '') + '<div class="muted small">' + esc(u.PersonName || '') + '</div>' + (u.dupName ? '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> ชื่อซ้ำกับบัญชีอื่น</div>' : '') + (u.RequestNote ? '<div class="muted small" title="' + esc(u.RequestNote) + '">“' + esc(String(u.RequestNote).slice(0, 60)) + '”</div>' : '') + '</td><td>' + esc(ROLE_LABEL[u.Role] || u.Role) + '</td><td>' + App.badge(ST_LABEL[u.Status] || u.Status, ST_CLASS[u.Status]) + '<div class="muted small">' + (u.RequestedAt ? 'ขอเมื่อ ' + App.dateTime(u.RequestedAt) : '') + '</div></td><td class="muted small">' + (u.LastLoginAt ? App.dateTime(u.LastLoginAt) : '—') + '</td><td class="act-cell wrap">' + userButtons(u) + '</td></tr>').join('') :
+        '<td>' + esc(u.Department || '-') + (deptBad(u) ? '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> กลุ่มงานไม่ตรงทะเบียน — แก้ไขแผนของกลุ่มงานไม่ได้</div>' : '') + (u.Organization ? '<div class="muted small">' + esc(u.Organization) + '</div>' : '') + (u.PlanRole ? '<div class="muted small"><i class="fas fa-user-tag"></i> ' + esc(u.PlanRole) + '</div>' : '') + '<div class="muted small">' + esc(u.PersonName || '') + '</div>' + (u.dupName ? '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> ชื่อซ้ำกับบัญชีอื่น</div>' : '') + (u.RequestNote ? '<div class="muted small" title="' + esc(u.RequestNote) + '">“' + esc(String(u.RequestNote).slice(0, 60)) + '”</div>' : '') + '</td><td>' + esc(ROLE_LABEL[u.Role] || u.Role) + '</td><td>' + App.badge(ST_LABEL[u.Status] || u.Status, ST_CLASS[u.Status]) + '<div class="muted small">' + (u.RequestedAt ? 'ขอเมื่อ ' + App.dateTime(u.RequestedAt) : '') + '</div></td><td class="muted small">' + (u.LastLoginAt ? App.dateTime(u.LastLoginAt) : '—') + '</td><td class="act-cell wrap">' + userButtons(u) + '</td></tr>').join('') :
         '<tr><td colspan="6" class="empty">ไม่มีรายการ</td></tr>') + '</tbody></table></div></div>';
   };
   function userButtons(u) {
@@ -39,24 +39,95 @@
   const userOf = email => S.users.find(u => u.Email === email);
   const refreshBadge = async () => { try { const m = await App.api('me', {}, { noLogout: true }); S.pendingUsers = m.pendingUsers || 0; App.updateBadges && App.updateBadges(); } catch (e) { /* ignore */ } };
   App.actions.userTab = el => { S.userTab = el.dataset.id; App.render(); };
+  // ---------- เลือกกลุ่มงานของผู้ใช้ (แอดมิน): จับคู่ข้อความที่ผู้ขอพิมพ์กับทะเบียนกลุ่มงาน ----------
+  const dNorm = s => String(s || '').replace(/\s+/g, '').toLowerCase();
+  const D_SYN = [['อายุกรรม', 'อายุรกรรม']]; // เขียนต่างกันแต่หมายถึงเดียวกัน
+  const dStrip = t => t.replace(/^(กลุ่มงานการพยาบาล|กลุ่มงาน|ฝ่ายการพยาบาล|ฝ่าย|งาน|ห้อง|หน่วย)/, '');
+  const dCore = s => dStrip(dNorm(s));
+  const dCoreSyn = s => { let t = dNorm(s); D_SYN.forEach(x => { t = t.split(x[0]).join(x[1]); }); return dStrip(t); };
+  const dBigrams = t => { const a = []; for (let i = 0; i < t.length - 1; i++) a.push(t.substr(i, 2)); return a; };
+  const dDice = (a, b) => { const x = dBigrams(a), y = dBigrams(b); if (!x.length || !y.length) return 0; const m = {}; y.forEach(g => { m[g] = (m[g] || 0) + 1; }); let hit = 0; x.forEach(g => { if (m[g] > 0) { hit++; m[g]--; } }); return 2 * hit / (x.length + y.length); };
+  const uniq = a => a.filter((n, i) => n && a.indexOf(n) === i);
+  /** คืน {name, how: exact|core|contains|similar|ambiguous, alts} หรือ null — name ว่างเมื่อกำกวม (ให้แอดมินเลือกเอง) */
+  function suggestDept(text, names) {
+    const n = dNorm(text); if (!n) return null;
+    const pick = (hit, how) => hit.length === 1 ? { name: hit[0], how: how, alts: [] } : (hit.length > 1 ? { name: '', how: 'ambiguous', alts: hit.slice(0, 5) } : null);
+    let r = pick(names.filter(x => dNorm(x) === n), 'exact'); if (r) return r;
+    const c = dCore(text), cs = dCoreSyn(text); if (!cs) return null;
+    r = pick(names.filter(x => dCore(x) === c), 'core') || pick(names.filter(x => dCore(x) === cs), 'core') || pick(names.filter(x => dCoreSyn(x) === cs), 'core'); if (r) return r;
+    r = pick(names.filter(x => { const k = dCoreSyn(x); return k.length >= 3 && cs.length >= 3 && (k.indexOf(cs) >= 0 || cs.indexOf(k) >= 0); }), 'contains'); if (r) return r;
+    const sc = names.map(x => ({ x: x, s: dDice(cs, dCoreSyn(x)) })).filter(o => o.s >= 0.7).sort((a, b) => b.s - a.s);
+    if (sc.length === 1 || (sc.length > 1 && sc[0].s - sc[1].s >= 0.1)) return { name: sc[0].x, how: 'similar', alts: [] };
+    if (sc.length) return { name: '', how: 'ambiguous', alts: sc.slice(0, 5).map(o => o.x) };
+    return null;
+  }
+  const deptNames = () => { const D = (App.masters().data || {}).departments || []; return { active: uniq(D.filter(d => d.Active !== false).map(d => d.Name)), all: uniq(D.map(d => d.Name)) }; };
+  /** บัญชีของ รพ. นี้หรือไม่ (หน่วยงานว่าง = บัญชีเดิมก่อนมีแบบขออนุญาต ถือเป็น รพ. — ตรงกับฝั่งเซิร์ฟเวอร์) */
+  const isHosp = org => { const o = dNorm(org), h = dNorm(App.masters().org); return !o || !h || o === h; };
+  /** เจ้าหน้าที่ของ รพ. ที่กลุ่มงานไม่ตรงทะเบียน = แก้ไขแผนของกลุ่มงานไม่ได้ */
+  const deptBad = u => u.Status === 'approved' && u.Role === 'user' && isHosp(u.Organization) && deptNames().all.indexOf(u.Department) < 0;
+
   function userForm(u, approving) {
-    const depts = (App.masters().data.departments || []).filter(d => d.Active !== false);
-    const ppl = (App.masters().data.people || []).filter(p => p.Active !== false);
-    const sugRole = u.Role === 'admin' ? 'admin' : (approving && u.suggestRole) || u.Role, sugPerson = u.PersonName || u.matchPerson || '';
+    const M = App.masters(), D = M.data || {}, allDepts = D.departments || [];
+    const ppl = (D.people || []).filter(p => p.Active !== false);
+    const dn = deptNames(), names = dn.active, regAll = dn.all;
+    // บัญชีที่คีย์มือแล้วข้อมูลเลื่อนช่อง (ชื่อกลุ่มงานไปอยู่ในช่องผู้รับผิดชอบ) -> ใช้เป็นกลุ่มงาน
+    const shifted = !u.Department && u.PersonName && regAll.some(n => dNorm(n) === dNorm(u.PersonName)) ? u.PersonName : '';
+    const sugRole = u.Role === 'admin' ? 'admin' : (approving && u.suggestRole) || u.Role, sugPerson = shifted ? '' : (u.PersonName || u.matchPerson || '');
     const info = u.FirstName ? '<div class="card" style="padding:10px 14px;margin-bottom:12px;background:var(--brand-soft)"><b>ข้อมูลที่ผู้ขอกรอก</b><div class="small">' + esc(u.Prefix + u.FirstName + ' ' + u.LastName) + ' · ' + esc(u.Organization || '-') + ' / ' + esc(u.Department || '-') + '</div><div class="small">หน้าที่: <b>' + esc(u.PlanRole || '-') + '</b>' + (u.suggestRole ? ' → แนะนำสิทธิ์: ' + esc(ROLE_LABEL[u.suggestRole]) : '') + '</div>' + (u.RequestNote ? '<div class="small muted">หมายเหตุ: ' + esc(u.RequestNote) + '</div>' : '') + (u.matchPerson && !u.PersonName ? '<div class="small">พบชื่อตรงกับทะเบียนผู้รับผิดชอบ: <b>' + esc(u.matchPerson) + '</b> (เลือกให้อัตโนมัติ)</div>' : '') + (u.dupName ? '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> มีบัญชีอื่นใช้ชื่อเดียวกัน ตรวจสอบก่อนอนุมัติ</div>' : '') + '</div>' : '';
-    const deptOpts = depts.map(d => d.Name).filter((n, i, a) => a.indexOf(n) === i); // เลือกได้เฉพาะกลุ่มงานตามทะเบียน (สิทธิ์แก้ไขอิงกลุ่มงาน) — ไม่ยอมรับข้อความที่ผู้ขอพิมพ์เอง
-    const deptMiss = !!(u.Department && !(App.masters().data.departments || []).some(d => String(d.Name).replace(/\s+/g, '') === String(u.Department).replace(/\s+/g, '')));
-    const warn = deptMiss ? '<div class="alert info" style="margin-bottom:12px"><i class="fas fa-triangle-exclamation"></i> กลุ่มงานที่ผู้ขอพิมพ์เอง (“' + esc(u.Department) + '”) ไม่ตรงทะเบียน — ต้องเลือกกลุ่มงานที่ถูกต้องจากรายการก่อนให้สิทธิ์เจ้าหน้าที่ (ถ้ายังไม่มีในทะเบียน ให้เพิ่มที่ ตั้งค่าระบบ › กลุ่มงาน ก่อน)</div>' : '';
+    const personDept = nm => { const p = ppl.find(x => x.Name === nm); return p && p.Department ? (names.find(n => dNorm(n) === dNorm(p.Department)) || '') : ''; };
+    const typed = String(u.Department || shifted || ''), sg = suggestDept(typed, names), external = !isHosp(u.Organization);
+    const inactiveHit = (!sg || !sg.name) ? (regAll.find(n => dNorm(n) === dNorm(typed) && names.indexOf(n) < 0) || '') : '';
+    let preset = '', why = '';
+    const sure = sg && sg.name && (sg.how === 'exact' || sg.how === 'core');
+    if (sg && sg.name && (approving || sure)) { preset = sg.name; why = sg.how === 'exact' ? 'ตรงกับทะเบียน' : sg.how === 'core' ? 'ตรงกับทะเบียน (เขียนต่างกันเล็กน้อย)' : 'ระบบแนะนำจากข้อความที่ผู้ขอพิมพ์ — โปรดตรวจสอบ'; }
+    else if (!typed && personDept(sugPerson)) { preset = personDept(sugPerson); why = 'ใช้กลุ่มงานของผู้รับผิดชอบ “' + sugPerson + '” ตามทะเบียน — โปรดตรวจสอบ'; }
+    const legacy = typed && !preset && !inactiveHit && regAll.indexOf(typed) < 0 ? typed : ''; // ค่าเดิมที่ไม่ตรงทะเบียน: คงไว้ไม่ให้หายเมื่อบันทึก
+    const selected = preset || inactiveHit || ((!approving || external) ? legacy : '');
+    const seen = {}, missions = Array.from(new Set(allDepts.filter(d => d.Active !== false).map(d => d.Mission || 'อื่น ๆ')));
+    const optGroups = missions.map(m => { const os = allDepts.filter(d => d.Active !== false && (d.Mission || 'อื่น ๆ') === m && !seen[d.Name] && (seen[d.Name] = true)).map(d => '<option value="' + esc(d.Name) + '"' + (d.Name === selected ? ' selected' : '') + '>' + esc(d.Name) + '</option>').join(''); return os ? '<optgroup label="' + esc(m) + '">' + os + '</optgroup>' : ''; }).join('');
+    const deptField = '<div class="field full"><label for="f_department">กลุ่มงาน <b class="req" id="dept-req" hidden>*</b></label><select id="f_department" name="department" aria-describedby="dept-note"><option value="">— เลือกกลุ่มงานจากทะเบียน —</option>' +
+      (legacy ? '<option value="' + esc(legacy) + '"' + (legacy === selected ? ' selected' : '') + '>ค่าเดิม (ไม่ตรงทะเบียน): ' + esc(legacy) + '</option>' : '') +
+      (inactiveHit ? '<option value="' + esc(inactiveHit) + '" selected>' + esc(inactiveHit) + ' (ปิดใช้งานในทะเบียน)</option>' : '') + optGroups + '</select>' +
+      '<small id="dept-note" role="status" aria-live="polite"></small><div id="dept-sug" class="small" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"></div></div>';
+    const warn = (legacy && !preset && approving) ? '<div class="alert info" style="margin-bottom:12px"><i class="fas fa-triangle-exclamation"></i> กลุ่มงานที่ผู้ขอพิมพ์เอง (“' + esc(legacy) + '”) ไม่ตรงทะเบียน' + (sg && sg.alts.length ? ' — อาจเป็น: ' + sg.alts.map(esc).join(' / ') : '') + ' — ต้องเลือกกลุ่มงานที่ถูกต้องจากรายการก่อนให้สิทธิ์เจ้าหน้าที่ (ถ้ายังไม่มีในทะเบียน ให้เพิ่มที่ ข้อมูลหลัก › กลุ่มงาน ก่อน)</div>' : '';
     const roleHelp = '<p class="muted small" style="margin:0 0 10px"><b>เจ้าหน้าที่</b> = บันทึกความคืบหน้า/เบิกจ่าย/แนบหลักฐาน/ส่งสรุป เฉพาะโครงการของ<u>กลุ่มงานตนเอง</u> (รายละเอียดโครงการ-กิจกรรม-งบ แอดมินเป็นผู้กรอก) · <b>ผู้ดูข้อมูล</b> = ดูอย่างเดียว · <b>แอดมิน</b> = จัดการทั้งหมด</p>';
     const html = info + warn + roleHelp + '<div class="form-grid">' + App.field({ name: 'name', label: 'ชื่อที่แสดง', value: u.Name, full: true }) +
       App.field({ name: 'role', label: 'บทบาท', type: 'select', noBlank: true, options: [{ v: 'user', l: ROLE_LABEL.user }, { v: 'viewer', l: ROLE_LABEL.viewer }, { v: 'admin', l: ROLE_LABEL.admin }], value: sugRole, full: true }) +
-      App.field({ name: 'department', label: 'กลุ่มงาน', type: 'select', options: deptOpts, value: u.Department }) +
+      deptField +
       App.field({ name: 'planRole', label: 'หน้าที่ต่อแผนงาน', type: 'select', options: ['ผู้รับผิดชอบหลัก', 'ผู้รับผิดชอบร่วม', 'ผู้ประสานงาน', 'หัวหน้าหน่วยงาน'], value: u.PlanRole }) +
       App.field({ name: 'organization', label: 'หน่วยงาน', value: u.Organization, full: true }) +
-      App.field({ name: 'personName', label: 'ผูกกับผู้รับผิดชอบ (ใช้กับสิทธิ์ "แก้ได้เฉพาะแผนตนเอง")', type: 'select', options: ppl.map(p => p.Name), value: sugPerson }) +
+      App.field({ name: 'personName', label: 'ผูกกับผู้รับผิดชอบ (ใช้กับสิทธิ์ "แก้ได้เฉพาะแผนตนเอง")', type: 'select', options: ppl.map(p => ({ v: p.Name, l: p.Name + (p.Department ? ' · ' + p.Department : '') })), value: sugPerson }) +
       App.field({ name: 'note', label: 'หมายเหตุ', value: (approving && u.Status === 'rejected') ? '' : (u.Note || ''), full: true }) + '</div>';
-    App.modal({ title: (approving ? 'อนุมัติ: ' : 'แก้ไข: ') + u.Email, html: html, onSubmit: async d => {
-      const v = App.values(d); const p = { email: u.Email, name: v.name, role: v.role, department: v.department, planRole: v.planRole, organization: v.organization, personName: v.personName, note: v.note };
+    App.modal({ title: (approving ? 'อนุมัติ: ' : 'แก้ไข: ') + u.Email, html: html,
+      onOpen: d => {
+        const el = n => d.querySelector('[name=' + n + ']'), note = d.querySelector('#dept-note'), req = d.querySelector('#dept-req'), sug = d.querySelector('#dept-sug');
+        let reason = why, auto = !!preset && !typed;
+        const setDept = n => { el('department').value = n; auto = false; reason = ''; refresh(); };
+        const refresh = () => {
+          const role = el('role').value, dept = el('department').value, hosp = isHosp(el('organization').value), need = role === 'user' && hosp, pd = personDept(el('personName').value);
+          const inReg = regAll.indexOf(dept) >= 0; req.hidden = !need; let msg = '', bad = false;
+          if (need && !dept) { msg = '⚠ ต้องเลือกกลุ่มงานจากทะเบียนก่อนให้สิทธิ์เจ้าหน้าที่'; bad = true; }
+          else if (need && !inReg) { msg = '⚠ กลุ่มงานนี้ไม่ตรงทะเบียน — ระบบจะไม่ให้สิทธิ์เจ้าหน้าที่'; bad = true; }
+          else if (role === 'user' && !hosp) msg = 'หน่วยงานภายนอก — แก้ไขได้เฉพาะแผนที่ผูกกับผู้รับผิดชอบ (กลุ่มงานไม่ให้สิทธิ์)';
+          else if (role !== 'user') msg = 'ไม่บังคับ — ' + (role === 'admin' ? 'แอดมินจัดการได้ทุกแผน' : 'ผู้ดูข้อมูลดูได้อย่างเดียว') + ' (ใช้แสดงผลเท่านั้น)';
+          else msg = '✔ ' + (reason || 'เจ้าหน้าที่จะแก้ไขได้เฉพาะแผนของกลุ่มงานนี้ (และแผนที่ตนเองเป็นผู้รับผิดชอบ)');
+          if (dept && pd && pd !== dept) msg += ' · ผู้รับผิดชอบที่ผูกอยู่กลุ่มงาน “' + pd + '” ในทะเบียน';
+          note.textContent = msg; note.style.color = bad ? 'var(--amber)' : ''; el('department').classList.toggle('invalid', bad && !!dept);
+          // ปุ่มทางลัด: ข้อเสนอจากข้อความที่ผู้ขอพิมพ์ (ที่ยังไม่ได้เลือก) / กลุ่มงานของผู้รับผิดชอบที่ผูก
+          const cands = uniq((sg ? (sg.name ? [sg.name] : sg.alts) : []).concat(pd ? [pd] : [])).filter(n => n !== dept);
+          sug.innerHTML = cands.length ? '<span class="muted">ใช้:</span>' + cands.map(n => '<button type="button" class="btn sm ghost" data-pick="' + esc(n) + '">' + esc(n) + '</button>').join('') : '';
+        };
+        sug.addEventListener('click', e => { const b = e.target.closest('[data-pick]'); if (b) setDept(b.dataset.pick); });
+        el('department').addEventListener('change', () => { auto = false; reason = ''; refresh(); });
+        el('role').addEventListener('change', refresh); el('organization').addEventListener('input', refresh);
+        el('personName').addEventListener('change', () => { const pd = personDept(el('personName').value); if (pd && (!el('department').value || auto)) { el('department').value = pd; auto = true; reason = 'ใช้กลุ่มงานของผู้รับผิดชอบที่ผูก — โปรดตรวจสอบ'; } refresh(); });
+        refresh();
+      },
+      onSubmit: async d => {
+      const v = App.values(d);
+      if (v.role === 'user' && isHosp(v.organization) && regAll.indexOf(v.department) < 0) throw new Error('กรุณาเลือกกลุ่มงานจากทะเบียนก่อนให้สิทธิ์เจ้าหน้าที่');
+      const p = { email: u.Email, name: v.name, role: v.role, department: v.department, planRole: v.planRole, organization: v.organization, personName: v.personName, note: v.note };
       if (approving) p.status = 'approved';
       await App.api('users.update', p); App.toast(approving ? 'อนุมัติแล้ว (ระบบส่งอีเมลแจ้งผู้ใช้)' : 'บันทึกแล้ว', 'success'); await refreshBadge(); App.render(); } });
   }
@@ -97,7 +168,7 @@
       if (c.type === 'bool') { f.type = 'checkbox'; f.value = r[c.name] !== false; f.full = true; } else if (c.type === 'number') { f.type = 'number'; f.step = 'any'; } else if (c.type === 'select') { f.type = 'select'; f.options = c.options; f.noBlank = true; }
       if (c.name === sc.key && !isNew) f.readonly = true;
       if (c.name === 'MissionCode') { f.type = 'select'; f.options = S.masters.data.mission.map(x => ({ v: x.Code, l: x.Code + '. ' + x.Name })); }
-      if (c.name === 'Department' && key === 'people') { f.type = 'select'; f.options = S.masters.data.departments.map(x => x.Name); }
+      if (c.name === 'Department' && key === 'people') { f.type = 'select'; f.options = uniq(S.masters.data.departments.filter(x => x.Active !== false).map(x => x.Name)).map(n => ({ v: n, l: n })); const cur = String(r.Department || ''); if (cur && !f.options.some(o => o.v === cur)) f.options.push({ v: cur, l: 'ค่าเดิม (ไม่ตรงทะเบียน): ' + cur }); }
       if (c.name === 'Mission' && key === 'departments') { f.type = 'text'; f.list = 'dl-missions'; }
       if (['Name', 'Mission'].indexOf(c.name) >= 0 && key !== 'funds') f.full = true;
       return f;
