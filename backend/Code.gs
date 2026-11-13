@@ -33,7 +33,7 @@
  * =====================================================================================
  */
 
-var APP_VERSION = '2.11.2';
+var APP_VERSION = '2.11.3';
 var TZ_ = (function () { try { return PropertiesService.getScriptProperties().getProperty('TIMEZONE') || 'Asia/Bangkok'; } catch (e) { return 'Asia/Bangkok'; } })();
 /** ค่าตั้งต้นของ Script Properties ที่ปรับได้ (ไม่ตั้ง = ใช้ค่านี้) — setupSheet() จะเขียนค่าเหล่านี้ลง Script Properties ให้เห็นและแก้ได้ */
 var PROP_DEFAULTS_ = { TIMEZONE: 'Asia/Bangkok', ORG_NAME: 'โรงพยาบาลสันทราย จังหวัดเชียงใหม่', SESSION_HOURS: '12', MAX_UPLOAD_MB: '10', MAX_ATTACH_MB: '20', MAX_ATTACH_PER_PLAN: '50',
@@ -920,7 +920,7 @@ function sheet_(name) {
     CACHE_[mk] = true;
     var need = SCHEMA_[name].length;
     if (sh.getMaxColumns() < need) sh.insertColumnsAfter(sh.getMaxColumns(), need - sh.getMaxColumns());
-    if (name === 'Users') migrateLegacyUsers_(sh);
+    if (name === 'Users') { migrateLegacyUsers_(sh); clearUsersValidation_(sh); }
     var hdr = sh.getRange(1, 1, 1, need).getValues()[0]; // v2.7: เติมหัวตารางทุกคอลัมน์ที่ว่าง (เพิ่มได้ทีละหลายคอลัมน์)
     for (var hi = 0; hi < need; hi++) if (String(hdr[hi]).trim() === '') sh.getRange(1, hi + 1).setValue(SCHEMA_[name][hi]);
   }
@@ -936,6 +936,17 @@ function migrateLegacyUsers_(sh) {
   sh.insertColumnAfter(5);
   var cols = SCHEMA_.Users;
   sh.getRange(1, 1, 1, cols.length).setValues([cols]);
+}
+/** v2.11.3: ชีต Users รุ่นเก่าอาจมี Data Validation ค้างที่คอลัมน์เดิม (เช่น E = pending/approved/rejected/suspended จากตอนมีคอลัมน์ Label)
+ *  ทำให้เขียนกลุ่มงาน/หน่วยงาน ฯลฯ ลงช่องนั้นไม่ได้ ("ข้อมูลที่ป้อนลงในเซลล์ E6 ละเมิดกฎการตรวจสอบข้อมูล") — ล้างกฎทั้งหมดของข้อมูลผู้ใช้ (ทำครั้งเดียวต่อเวอร์ชัน) */
+function clearUsersValidation_(sh) {
+  try {
+    var p = PropertiesService.getScriptProperties();
+    if (p.getProperty('USERS_DV_CLEARED') === APP_VERSION) return;
+    var rows = Math.max(sh.getMaxRows ? sh.getMaxRows() - 1 : 1000, 1);
+    sh.getRange(2, 1, rows, sh.getMaxColumns()).clearDataValidations();
+    p.setProperty('USERS_DV_CLEARED', APP_VERSION);
+  } catch (e) { /* ล้างไม่สำเร็จไม่ควรทำให้ระบบพัง — ผู้ดูแลลบกฎด้วยมือได้ที่ ข้อมูล › การตรวจสอบข้อมูล */ }
 }
 function invalidate_(name) {
   if (name) { delete CACHE_['t_' + name]; if (name === 'Settings') delete CACHE_.settings; }

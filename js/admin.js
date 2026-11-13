@@ -9,7 +9,7 @@
   const isOther = u => u.Status === 'rejected' || u.Status === 'suspended' || u.Status === 'new';
   const ST_LABEL = { new: 'ยังไม่ส่งคำขอ', pending: 'รออนุมัติ', approved: 'อนุมัติแล้ว', rejected: 'ปฏิเสธ', suspended: 'ระงับ' };
   const ST_CLASS = { new: 'gray', pending: 'amber', approved: 'green', rejected: 'red', suspended: 'dark' };
-  const FE_VERSION = '2.11.2'; // เวอร์ชันหลังบ้าน (Apps Script) ที่หน้าเว็บนี้ต้องใช้คู่กัน
+  const FE_VERSION = '2.11.3'; // เวอร์ชันหลังบ้าน (Apps Script) ที่หน้าเว็บนี้ต้องใช้คู่กัน
   const verLt = (a, b) => { const x = String(a || '0').split('.').map(Number), y = String(b || '0').split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
   const ROLE_LABEL = { admin: 'แอดมิน', user: 'เจ้าหน้าที่ (แก้ไขได้)', viewer: 'ผู้ดูข้อมูล (อ่านอย่างเดียว)' };
 
