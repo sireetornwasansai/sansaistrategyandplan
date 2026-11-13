@@ -33,7 +33,7 @@
  * =====================================================================================
  */
 
-var APP_VERSION = '2.8.0';
+var APP_VERSION = '2.10.0';
 var TZ_ = (function () { try { return PropertiesService.getScriptProperties().getProperty('TIMEZONE') || 'Asia/Bangkok'; } catch (e) { return 'Asia/Bangkok'; } })();
 /** ค่าตั้งต้นของ Script Properties ที่ปรับได้ (ไม่ตั้ง = ใช้ค่านี้) — setupSheet() จะเขียนค่าเหล่านี้ลง Script Properties ให้เห็นและแก้ได้ */
 var PROP_DEFAULTS_ = { TIMEZONE: 'Asia/Bangkok', ORG_NAME: 'โรงพยาบาลสันทราย จังหวัดเชียงใหม่', SESSION_HOURS: '12', MAX_UPLOAD_MB: '10', MAX_ATTACH_MB: '20', MAX_ATTACH_PER_PLAN: '50',
@@ -58,7 +58,8 @@ var SCHEMA_ = {
   Plans:          ['PlanId', 'Year', 'FundCode', 'Seq', 'ProjectNo', 'ProjectTitle', 'Name', 'Owner', 'Department',
                    'StrategyMoph', 'StrategyMission', 'StrategyProv', 'StrategyHosp', 'StrategyRegion', 'PlanType',
                    'Status', 'ReturnDate', 'SummarySent', 'SummarySentDate', 'SummaryFileUrl', 'Note', 'IsDeleted', 'Source',
-                   'CreatedAt', 'CreatedBy', 'UpdatedAt', 'UpdatedBy'],
+                   'CreatedAt', 'CreatedBy', 'UpdatedAt', 'UpdatedBy',
+                   'BudgetCap', 'MophProject', 'MophKpi'],
   Activities:     ['ActId', 'PlanId', 'No', 'Name', 'Status', 'PlanStart', 'PlanEnd', 'DateText', 'Note', 'SortOrder', 'IsDeleted', 'Source',
                    'CreatedAt', 'CreatedBy', 'UpdatedAt', 'UpdatedBy', 'Progress'],
   BudgetLines:    ['LineId', 'ActId', 'PlanId', 'CategoryCode', 'Amount', 'Detail'],
@@ -71,16 +72,21 @@ var SCHEMA_ = {
   Records:        ['RecId', 'Kind', 'PlanId', 'Title', 'Detail', 'Owner', 'Status', 'Priority', 'Date', 'Likelihood', 'Impact', 'Url',
                    'IsDeleted', 'CreatedAt', 'CreatedBy', 'UpdatedAt', 'UpdatedBy'],
   // v2.8: เอกสารแนบของแผนงาน/โครงการ (Kind = file | link · Origin = upload | drive | link)
+  // v2.10: กรอบยุทธศาสตร์กระทรวง (แผนงาน/โครงการ/ตัวชี้วัด) — FrameworkYear รองรับกรอบปีถัดไป
+  MophProgram:    ['Code', 'Name', 'StrategyCode', 'FrameworkYear', 'SortOrder', 'Active'],
+  MophProject:    ['Code', 'Name', 'ProgramCode', 'FrameworkYear', 'SortOrder', 'Active'],
+  MophKpi:        ['Code', 'Name', 'ProjectCode', 'FrameworkYear', 'SortOrder', 'Active'],
   Attachments:    ['AttId', 'PlanId', 'Kind', 'Title', 'Url', 'FileId', 'FileName', 'MimeType', 'Size', 'Origin', 'Note', 'IsDeleted', 'CreatedAt', 'CreatedBy']
 };
 
 // คอลัมน์ที่ต้องเก็บเป็น "ข้อความ" (กันชีตแปลงเป็นวันที่/ตัวเลขเอง) และคอลัมน์ตัวเลขเงิน
 var TEXT_COLS_ = ['RecId', 'PlanId', 'ActId', 'LineId', 'DisbId', 'AdjId', 'FixId', 'Code', 'MissionCode', 'Seq', 'No', 'ProjectNo', 'FundCode',
   'StrategyMoph', 'StrategyMission', 'StrategyProv', 'StrategyHosp', 'ReturnDate', 'SummarySentDate', 'PlanStart', 'PlanEnd',
+  'StrategyCode', 'ProgramCode', 'ProjectCode', 'FrameworkYear', 'MophProject', 'MophKpi',
   'ApproveDate', 'PayRequestDate', 'PaidDate', 'Date', 'Year', 'Key', 'Value', 'CategoryCode', 'TransferId',
   'Time', 'CreatedAt', 'UpdatedAt', 'RequestedAt', 'ApprovedAt', 'LastLoginAt', 'ResolvedAt', 'Old', 'New'];
 var TIME_COLS_ = ['Time', 'CreatedAt', 'UpdatedAt', 'RequestedAt', 'ApprovedAt', 'LastLoginAt', 'ResolvedAt'];
-var MONEY_COLS_ = ['Amount'];
+var MONEY_COLS_ = ['Amount', 'BudgetCap'];
 
 var ROLES_ = ['viewer', 'user', 'admin'];
 var USER_STATUSES_ = ['new', 'pending', 'approved', 'rejected', 'suspended']; // new = ล็อกอิน Google แล้วแต่ยังไม่ส่งแบบขออนุญาต
@@ -128,6 +134,353 @@ var DEFAULT_PLAN_TYPES_ = [
   ['WELFARE', 'สวัสดิการ/ขวัญกำลังใจ', 4, true],
   ['OTHER', 'อื่น ๆ', 5, true]
 ];
+
+// v2.10: กรอบยุทธศาสตร์ สธ. ปี 2570 (แผนงาน → โครงการ → ตัวชี้วัด) จากเอกสารยุทธศาสตร์กระทรวงสาธารณสุข — แอดมินแก้ไข/เพิ่มได้ที่ ตั้งค่าระบบ
+var MOPH_FW_ = {
+ "programs": [
+  {
+   "Code": "P1",
+   "Name": "การพัฒนาคุณภาพชีวิตคนไทยทุกกลุ่มวัย (ด้านสุขภาพ)",
+   "StrategyCode": "1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P2",
+   "Name": "การป้องกันควบคุมโรคและลดปัจจัยเสี่ยงด้านสุขภาพ",
+   "StrategyCode": "1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P3",
+   "Name": "การบริหารจัดการสิ่งแวดล้อม",
+   "StrategyCode": "1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P4",
+   "Name": "การพัฒนาระบบการแพทย์ปฐมภูมิ",
+   "StrategyCode": "2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5",
+   "Name": "การพัฒนาระบบบริการสุขภาพ (Service Plan)",
+   "StrategyCode": "2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P6",
+   "Name": "การพัฒนาระบบบริการการแพทย์ฉุกเฉินครบวงจรและระบบการส่งต่อ",
+   "StrategyCode": "2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P7",
+   "Name": "การพัฒนาระบบบริหารจัดการกำลังคนด้านสุขภาพ",
+   "StrategyCode": "3",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P8",
+   "Name": "การพัฒนาระบบธรรมาภิบาลและองค์กรคุณภาพ",
+   "StrategyCode": "4",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P9",
+   "Name": "การบริหารจัดการด้านการเงินการคลังสุขภาพ",
+   "StrategyCode": "4",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P10",
+   "Name": "อุตสาหกรรมการแพทย์ครบวงจร การท่องเที่ยวเชิงสุขภาพ ความงาม และแพทย์แผนไทย",
+   "StrategyCode": "5",
+   "FrameworkYear": "2570"
+  }
+ ],
+ "projects": [
+  {
+   "Code": "P1-1",
+   "Name": "โครงการพัฒนาและสร้างศักยภาพคนไทยทุกกลุ่มวัย",
+   "ProgramCode": "P1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P1-2",
+   "Name": "โครงการพัฒนาความรอบรู้ด้านสุขภาพของประชากร",
+   "ProgramCode": "P1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P2-1",
+   "Name": "โครงการป้องกันควบคุมโรคและภัยสุขภาพ",
+   "ProgramCode": "P2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P3-1",
+   "Name": "การบริหารจัดการสิ่งแวดล้อม",
+   "ProgramCode": "P3",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P4-1",
+   "Name": "โครงการพัฒนาเครือข่ายด้านสุขภาพ",
+   "ProgramCode": "P4",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P4-2",
+   "Name": "โครงการเข้าถึงระบบบริการสุขภาพปฐมภูมิ",
+   "ProgramCode": "P4",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-1",
+   "Name": "โครงการพัฒนาระบบบริการสาขาแม่และเด็ก",
+   "ProgramCode": "P5",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-2",
+   "Name": "โครงการพัฒนาระบบบริการผู้ป่วยโรคสำคัญตามสาขา Service Plan",
+   "ProgramCode": "P5",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-3",
+   "Name": "โครงการพัฒนาระบบบริการสุขภาพสาขาทารกแรกเกิด",
+   "ProgramCode": "P5",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-4",
+   "Name": "โครงการพัฒนาระบบบริการสุขภาพสาขาสุขภาพจิตและจิตเวช",
+   "ProgramCode": "P5",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-5",
+   "Name": "โครงการพัฒนาระบบบริการสุขภาพ 5 สาขาหลัก",
+   "ProgramCode": "P5",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-6",
+   "Name": "โครงการพัฒนาระบบบริการสุขภาพสาขามะเร็ง",
+   "ProgramCode": "P5",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-7",
+   "Name": "โครงการพัฒนาระบบบริการสุขภาพสาขาปลูกถ่ายอวัยวะ",
+   "ProgramCode": "P5",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-8",
+   "Name": "โครงการพัฒนาระบบบริการบำบัดรักษาผู้ป่วยยาเสพติด",
+   "ProgramCode": "P5",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P6-1",
+   "Name": "โครงการพัฒนาระบบบริการการแพทย์ฉุกเฉินครบวงจรและระบบการส่งต่อ",
+   "ProgramCode": "P6",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P7-1",
+   "Name": "โครงการบริหารจัดการกำลังคนด้านสุขภาพ",
+   "ProgramCode": "P7",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P8-1",
+   "Name": "โครงการพัฒนาองค์กรคุณภาพ",
+   "ProgramCode": "P8",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P8-2",
+   "Name": "โครงการพัฒนาคุณภาพการตรวจทางห้องปฏิบัติการอย่างสมเหตุสมผล",
+   "ProgramCode": "P8",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P9-1",
+   "Name": "โครงการบริหารจัดการด้านการเงินการคลัง",
+   "ProgramCode": "P9",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P10-1",
+   "Name": "โครงการพัฒนาการท่องเที่ยวเชิงสุขภาพและการแพทย์",
+   "ProgramCode": "P10",
+   "FrameworkYear": "2570"
+  }
+ ],
+ "kpis": [
+  {
+   "Code": "P1-1-K1",
+   "Name": "ร้อยละของเด็ก อายุ 0-5 ปี มีพัฒนาการสมวัย",
+   "ProjectCode": "P1-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P1-2-K1",
+   "Name": "อัตราความรอบรู้ด้านสุขภาพของประชาชนไทย อายุ 15 ปีขึ้นไป",
+   "ProjectCode": "P1-2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P2-1-K1",
+   "Name": "ร้อยละผู้ป่วยโรคเบาหวานและโรคความดันโลหิตสูงที่ควบคุมได้",
+   "ProjectCode": "P2-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P2-1-K2",
+   "Name": "อัตราการเสียชีวิตและบาดเจ็บผู้ป่วยใน (IPD) จากอุบัติเหตุทางถนนทุกกลุ่มวัยลดลง",
+   "ProjectCode": "P2-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P2-1-K3",
+   "Name": "ร้อยละความครอบคลุมของวัคซีน MMR2 ในเด็กอายุครบ 2 ปี",
+   "ProjectCode": "P2-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P2-1-K4",
+   "Name": "อัตราความครอบคลุมการขึ้นทะเบียนผู้ป่วยวัณโรค",
+   "ProjectCode": "P2-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P2-1-K5",
+   "Name": "ร้อยละของผู้สูงอายุที่มีความเสี่ยงจากการคัดกรอง/ได้รับการดูแล (คัดกรอง 9 ด้าน ร้อยละ 80 · ดูแลกลุ่มเสี่ยง ร้อยละ 70)",
+   "ProjectCode": "P2-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P3-1-K1",
+   "Name": "ร้อยละของโรงพยาบาลสังกัด สธ. ยกระดับสู่ Net-Zero Hospital (NZeH)",
+   "ProjectCode": "P3-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P4-1-K1",
+   "Name": "ร้อยละผลลัพธ์สุขภาพของกลุ่มเป้าหมายที่ได้รับการดูแลโดยอาสาพยาบาลชุมชนผ่านเกณฑ์มาตรฐาน",
+   "ProjectCode": "P4-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P4-2-K1",
+   "Name": "ร้อยละการเข้ารับบริการสุขภาพปฐมภูมิของประชากรในพื้นที่รับผิดชอบ",
+   "ProjectCode": "P4-2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-1-K1",
+   "Name": "อัตราส่วนการตายมารดาไทยต่อการเกิดมีชีพแสนคน",
+   "ProjectCode": "P5-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-2-K1",
+   "Name": "อัตราตายของผู้ป่วยโรคหลอดเลือดสมอง (Stroke)",
+   "ProjectCode": "P5-2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-2-K2",
+   "Name": "อัตราตายของผู้ป่วยกล้ามเนื้อหัวใจตายเฉียบพลันชนิด STEMI",
+   "ProjectCode": "P5-2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-2-K3",
+   "Name": "ร้อยละผู้ป่วยไตเรื้อรัง stage 3-5 รายใหม่ลดลงจากปีก่อน",
+   "ProjectCode": "P5-2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-3-K1",
+   "Name": "อัตราตายทารกแรกเกิดอายุ ≤ 28 วัน",
+   "ProjectCode": "P5-3",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-4-K1",
+   "Name": "อัตราการฆ่าตัวตายสำเร็จ",
+   "ProjectCode": "P5-4",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-5-K1",
+   "Name": "อัตราตายผู้ป่วยติดเชื้อในกระแสเลือดแบบรุนแรงชนิด Community-acquired",
+   "ProjectCode": "P5-5",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-6-K1",
+   "Name": "สัดส่วนผู้ป่วยมะเร็งระยะเริ่มแรก (มะเร็งเต้านมระยะ 0-2 · ลำไส้ใหญ่และไส้ตรงระยะเริ่มต้น/รอยโรคก่อนมะเร็ง)",
+   "ProjectCode": "P5-6",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-7-K1",
+   "Name": "จำนวนผู้ได้รับการปลูกถ่ายอวัยวะ",
+   "ProjectCode": "P5-7",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P5-8-K1",
+   "Name": "ร้อยละของผู้ป่วยยาเสพติดหยุดเสพต่อเนื่อง 1 ปี (1 Year Remission Rate)",
+   "ProjectCode": "P5-8",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P6-1-K1",
+   "Name": "ร้อยละของผู้ป่วยวิกฤตเข้าถึงบริการการแพทย์ฉุกเฉิน",
+   "ProjectCode": "P6-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P7-1-K1",
+   "Name": "การบริหารจัดการกำลังคนด้านสุขภาพ สังกัด สป.สธ. (สัดส่วนการกระจายแพทย์ใน รพช. · ความสำเร็จการบริหารแพทย์เฉพาะทางใน รพศ./รพท.)",
+   "ProjectCode": "P7-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P8-1-K1",
+   "Name": "ร้อยละของโรงพยาบาลสังกัด สธ. มีคุณภาพผ่านการรับรองตามมาตรฐาน",
+   "ProjectCode": "P8-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P8-2-K1",
+   "Name": "ร้อยละของโรงพยาบาลในเขตสุขภาพผ่านเกณฑ์ RLU Hospital Plus",
+   "ProjectCode": "P8-2",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P9-1-K1",
+   "Name": "ร้อยละของหน่วยบริการที่ประสบภาวะวิกฤตทางการเงินระดับ 5",
+   "ProjectCode": "P9-1",
+   "FrameworkYear": "2570"
+  },
+  {
+   "Code": "P10-1-K1",
+   "Name": "รายได้จาก Health Sectors เศรษฐกิจเพิ่มขึ้น",
+   "ProjectCode": "P10-1",
+   "FrameworkYear": "2570"
+  }
+ ]
+};
+var ALIGN_HINTS_ = {"P1-1": ["พัฒนาการเด็ก", "พัฒนาการสมวัย", "เด็กปฐมวัย", "เด็กสุข", "ศูนย์เด็ก", "กลุ่มวัย", "วัยเรียน", "วัยรุ่น", "ส่งเสริมสุขภาพ", "ทันตกรรม", "สุขภาพช่องปาก"], "P1-2": ["รอบรู้", "Health Literacy"], "P2-1": ["ป้องกัน", "ควบคุมโรค", "เบาหวาน", "ความดัน", "วัคซีน", "วัณโรค", "ผู้สูงอายุ", "อุบัติเหตุทางถนน", "ไข้เลือดออก", "โรคติดต่อ", "เฝ้าระวัง", "คัดกรอง"], "P3-1": ["สิ่งแวดล้อม", "Net-Zero", "NZeH", "พลังงาน", "Green", "กรีน", "ขยะ", "คาร์บอน", "อาชีวอนามัย"], "P4-1": ["อสม", "อาสา", "เครือข่าย", "ชุมชน", "ภาคี", "ดูแลต่อเนื่อง", "ที่บ้าน", "พึ่งพิง", "LTC", "ระยะกลาง", "Palliative", "ระยะท้าย"], "P4-2": ["ปฐมภูมิ", "PCU", "หมอครอบครัว", "เครือข่ายหน่วยบริการปฐมภูมิ", "คลินิกหมอครอบครัว"], "P5-1": ["มารดา", "แม่และเด็ก", "ตั้งครรภ์", "ฝากครรภ์", "นมแม่", "สูติ", "คลอด", "ห้องคลอด"], "P5-2": ["หลอดเลือดสมอง", "Stroke", "STEMI", "หัวใจ", "ไตเรื้อรัง", "NCD", "อายุรกรรม", "โรคเรื้อรัง", "Service Plan", "ผู้ป่วยใน"], "P5-3": ["ทารก", "NICU", "แรกเกิด"], "P5-4": ["จิตเวช", "สุขภาพจิต", "ฆ่าตัวตาย", "ซึมเศร้า"], "P5-5": ["Sepsis", "ติดเชื้อในกระแสเลือด", "ศัลยกรรม", "ออร์โธ", "กุมาร", "สาขาหลัก", "ผู้ป่วยวิกฤต", "ห้องผ่าตัด", "ผู้ป่วยนอก", "ผู้ป่วยในโรงพยาบาล", "การดูแลผู้ป่วย"], "P5-6": ["มะเร็ง", "เคมีบำบัด", "แมมโมแกรม", "เต้านม"], "P5-7": ["ปลูกถ่าย", "บริจาคอวัยวะ", "อวัยวะ"], "P5-8": ["ยาเสพติด", "สารเสพติด", "บำบัดรักษา", "Remission"], "P6-1": ["การแพทย์ฉุกเฉิน", "EMS", "ส่งต่อ", "Refer", "กู้ชีพ", "สาธารณภัย", "อุบัติเหตุหมู่", "อุบัติเหตุกลุ่มชน"], "P7-1": ["กำลังคน", "อัตรากำลัง", "บุคลากร", "ศักยภาพพยาบาล", "พัฒนาศักยภาพ", "อบรม", "ขวัญกำลังใจ", "สวัสดิการ", "ปฐมนิเทศ", "บริหารงานบุคคล", "ผู้นำทางการพยาบาล", "ทรัพยากรทางการพยาบาล"], "P8-1": ["คุณภาพ", "รับรองมาตรฐาน", "บริหารความเสี่ยง", "กกอ", "กกบ", "คณะกรรมการ", "Smart Hospital", "ธรรมาภิบาล", "ควบคุมภายใน", "นิเทศ", "ติดตาม", "ประเมินผล", "ดิจิทัล", "มหกรรมคุณภาพ"], "P8-2": ["ห้องปฏิบัติการ", "LA Reaccreditation", "RLU", "ตรวจทางห้อง", "ชันสูตร", "ส่งตรวจวิเคราะห์"], "P9-1": ["การเงิน", "บัญชี", "เรียกเก็บ", "ต้นทุน", "รายได้", "พัสดุ", "ภาวะวิกฤตทางการเงิน", "คลินิกพิเศษ", "SMC"], "P10-1": ["ท่องเที่ยว", "เชิงสุขภาพ", "แพทย์แผนไทย", "สปา", "Wellness", "ความงาม", "นวด"]};
 
 var SEED_ = {
   moph: [
@@ -558,7 +911,7 @@ function ss_() {
 function sheet_(name) {
   if (!SCHEMA_[name]) throw new Error('ไม่รู้จักชีต ' + name);
   var sh = ss_().getSheetByName(name);
-  if (!sh && (name === 'Records' || name === 'Attachments')) { sh = ensureSheet_(name, { created: [], fixed: [], warnings: [] }); } // v2.4: ชีตใหม่สร้างให้เอง
+  if (!sh && (name === 'Records' || name === 'Attachments' || name === 'MophProgram' || name === 'MophProject' || name === 'MophKpi')) { sh = ensureSheet_(name, { created: [], fixed: [], warnings: [] }); } // v2.4: ชีตใหม่สร้างให้เอง
   if (!sh) throw new Error('ยังไม่มีชีต "' + name + '" กรุณารัน setupSheet() ก่อน');
   var mk = 'm_' + name;
   if (!CACHE_[mk]) { // v2.3: ชีตเดิมที่ยังไม่มีคอลัมน์ใหม่ (เช่น Activities.Progress) -> ขยายและเติมหัวตารางให้เอง
@@ -994,6 +1347,18 @@ var MASTERS_ = {
   hosp:       { sheet: 'StrategyHosp', key: 'Code', label: 'ยุทธศาสตร์ รพ.สันทราย', cols: [
     { name: 'Code', label: 'รหัส', type: 'text', required: true }, { name: 'Name', label: 'ชื่อ', type: 'text', required: true },
     { name: 'SortOrder', label: 'ลำดับ', type: 'number' }, { name: 'Active', label: 'ใช้งาน', type: 'bool' }] },
+  moprog:     { sheet: 'MophProgram', key: 'Code', label: 'แผนงาน สธ. (ปี 2570)', cols: [
+    { name: 'Code', label: 'รหัส', type: 'text', required: true }, { name: 'Name', label: 'ชื่อ', type: 'text', required: true },
+    { name: 'StrategyCode', label: 'ยุทธศาสตร์กระทรวง (รหัส 1-5)', type: 'text', required: true },
+    { name: 'FrameworkYear', label: 'กรอบปี (พ.ศ.)', type: 'text' }, { name: 'SortOrder', label: 'ลำดับ', type: 'number' }, { name: 'Active', label: 'ใช้งาน', type: 'bool' }] },
+  mopro:      { sheet: 'MophProject', key: 'Code', label: 'โครงการ สธ. (ปี 2570)', cols: [
+    { name: 'Code', label: 'รหัส', type: 'text', required: true }, { name: 'Name', label: 'ชื่อ', type: 'text', required: true },
+    { name: 'ProgramCode', label: 'แผนงานแม่ (รหัส)', type: 'text', required: true },
+    { name: 'FrameworkYear', label: 'กรอบปี (พ.ศ.)', type: 'text' }, { name: 'SortOrder', label: 'ลำดับ', type: 'number' }, { name: 'Active', label: 'ใช้งาน', type: 'bool' }] },
+  mokpi:      { sheet: 'MophKpi', key: 'Code', label: 'ตัวชี้วัด สธ. (ปี 2570)', cols: [
+    { name: 'Code', label: 'รหัส', type: 'text', required: true }, { name: 'Name', label: 'ชื่อ', type: 'text', required: true },
+    { name: 'ProjectCode', label: 'โครงการแม่ (รหัส)', type: 'text', required: true },
+    { name: 'FrameworkYear', label: 'กรอบปี (พ.ศ.)', type: 'text' }, { name: 'SortOrder', label: 'ลำดับ', type: 'number' }, { name: 'Active', label: 'ใช้งาน', type: 'bool' }] },
   departments:{ sheet: 'Departments', key: 'Name', label: 'กลุ่มงาน', cols: [
     { name: 'Name', label: 'ชื่อกลุ่มงาน', type: 'text', required: true }, { name: 'Mission', label: 'กลุ่มภารกิจ', type: 'text', required: true },
     { name: 'Active', label: 'ใช้งาน', type: 'bool' }] },
@@ -1003,6 +1368,7 @@ var MASTERS_ = {
 };
 
 function mastersGet_() {
+  ensureMoph_();
   var out = { schema: {}, data: {}, limits: { maxUploadMb: cfgNum_('MAX_UPLOAD_MB'), maxAttachMb: cfgNum_('MAX_ATTACH_MB'), maxAttachPerPlan: cfgNum_('MAX_ATTACH_PER_PLAN'), blockedExt: ATT_BLOCKED_EXT_ }, settings: getSettings_(), enums: { planStatuses: PLAN_STATUSES_, actStatuses: ACT_STATUSES_, adjTypes: ADJ_TYPES_, roles: ROLES_, userStatuses: USER_STATUSES_, actExcluded: ACT_EXCLUDED_ } };
   Object.keys(MASTERS_).forEach(function (k) {
     var m = MASTERS_[k];
@@ -1036,6 +1402,9 @@ function mastersSave_(admin, p) {
   if (p.isNew && existing) fail_('VALIDATION', 'มี "' + obj[m.key] + '" อยู่แล้ว');
   if (!p.isNew && !existing) fail_('NOT_FOUND', 'ไม่พบรายการที่จะแก้ไข');
   if (p.table === 'prov' && !findBy_('StrategyMission', 'Code', obj.MissionCode)) fail_('VALIDATION', 'ไม่พบพันธกิจรหัส ' + obj.MissionCode);
+  if (p.table === 'moprog' && !findBy_('StrategyMoph', 'Code', obj.StrategyCode)) fail_('VALIDATION', 'ไม่พบยุทธศาสตร์กระทรวงรหัส ' + obj.StrategyCode);
+  if (p.table === 'mopro' && !findBy_('MophProgram', 'Code', obj.ProgramCode)) fail_('VALIDATION', 'ไม่พบแผนงานรหัส ' + obj.ProgramCode);
+  if (p.table === 'mokpi' && !findBy_('MophProject', 'Code', obj.ProjectCode)) fail_('VALIDATION', 'ไม่พบโครงการรหัส ' + obj.ProjectCode);
   if (p.table === 'people' && obj.Email) {
     var dup = readAll_('People').filter(function (r) { return r.Name !== obj.Name && String(r.Email).toLowerCase() === obj.Email.toLowerCase(); });
     if (dup.length) fail_('VALIDATION', 'อีเมลนี้ผูกกับ "' + dup[0].Name + '" อยู่แล้ว');
@@ -1132,6 +1501,10 @@ function buildModel_(year, opts) {
       if (a.Type === 'คืนเงิน') { t.refund += amt; t.netPaid -= amt; } else if (a.Type === 'ปรับลดงบ') { t.adjCut += amt; t.plannedBudget -= amt; t.activeBudget -= amt; }
       else if (a.Type === 'ปรับเพิ่มงบ') { t.adjInc += amt; t.plannedBudget += amt; t.activeBudget += amt; }
     });
+    // v2.9: วงเงินรวมโครงการ (BudgetCap) — ตั้งไว้ก่อนเมื่อแผนงบยังไม่ออก ส่วนที่ยังไม่แจกแจงเป็นกิจกรรมนับเป็นงบตามแผน/งบที่ใช้จริงของแผน
+    var cap = Math.max(0, num_(p.BudgetCap)), allocated = t.plannedBudget, unalloc = cap > allocated ? cap - allocated : 0;
+    t.cap = cap; t.allocated = allocated; t.unallocated = unalloc; t.overCap = cap > 0 && allocated > cap + 0.5 ? allocated - cap : 0;
+    t.plannedBudget += unalloc; t.activeBudget += unalloc;
     if (p.Status === 'ยกเลิก') { t.released = Math.max(0, t.plannedBudget - t.netPaid); t.activeBudget = Math.max(0, t.netPaid); }
     Object.keys(t).forEach(function (k) { t[k] = round2_(t[k]); });
     t.remaining = round2_(t.activeBudget - t.netPaid);
@@ -1171,7 +1544,7 @@ function planBrief_(m) {
   var p = stripRow_(m.plan);
   p.IsDeleted = bool_(p.IsDeleted); p.SummarySent = bool_(p.SummarySent);
   ['ReturnDate', 'SummarySentDate'].forEach(function (k) { p[k] = dstr_(p[k]); });
-  p.Year = String(p.Year); p.Seq = String(p.Seq); p.ProjectNo = String(p.ProjectNo);
+  p.Year = String(p.Year); p.Seq = String(p.Seq); p.ProjectNo = String(p.ProjectNo); p.BudgetCap = Math.max(0, num_(p.BudgetCap));
   p.CreatedAt = String(p.CreatedAt); p.UpdatedAt = String(p.UpdatedAt);
   var today = todayIso_(), span = { start: '', end: '', acts: 0, done: 0 };
   (m.items || []).forEach(function (x) {
@@ -1274,10 +1647,10 @@ function checkExpected_(row, expected, label) {
   if (String(row.UpdatedAt) !== String(expected)) fail_('CONFLICT', label + 'นี้ถูกแก้ไขโดย ' + (row.UpdatedBy || 'ผู้อื่น') + ' เมื่อ ' + String(row.UpdatedAt).replace('T', ' ') + ' — กรุณาโหลดข้อมูลใหม่ก่อนแก้ไข');
 }
 var FIELD_LABELS_ = { Name: 'ชื่อ', Owner: 'ผู้รับผิดชอบ', Department: 'กลุ่มงาน', FundCode: 'แหล่งเงิน', Year: 'ปีงบประมาณ', Seq: 'ลำดับ', ProjectNo: 'เลขที่โครงการ', ProjectTitle: 'ชื่อโครงการ',
-  StrategyMoph: 'ยุทธศาสตร์กระทรวง', StrategyMission: 'พันธกิจ', StrategyProv: 'ยุทธศาสตร์ สสจ.', StrategyHosp: 'ยุทธศาสตร์ รพ.', StrategyRegion: 'ยุทธศาสตร์เขต',
+  StrategyMoph: 'ยุทธศาสตร์กระทรวง', StrategyMission: 'พันธกิจ', StrategyProv: 'ยุทธศาสตร์ สสจ.', StrategyHosp: 'ยุทธศาสตร์ รพ.', StrategyRegion: 'ยุทธศาสตร์เขต', MophProject: 'โครงการ สธ. (ความสอดคล้อง)', MophKpi: 'ตัวชี้วัด สธ.',
   PlanType: 'ประเภทแผน', Status: 'สถานะ', ReturnDate: 'วันส่งคืนแผน', Note: 'หมายเหตุ', No: 'เลขที่', PlanStart: 'วันเริ่ม', PlanEnd: 'วันสิ้นสุด', Amount: 'จำนวนเงิน',
   ApproveDate: 'วันขออนุมัติ', PayRequestDate: 'วันขอจ่าย', PaidDate: 'วันจ่ายจริง', EvidenceUrl: 'หลักฐาน', SummarySent: 'ส่งสรุปโครงการ' };
-var PLAN_FIELDS_ = ['Name', 'Owner', 'Department', 'FundCode', 'Year', 'Seq', 'ProjectNo', 'ProjectTitle', 'StrategyMoph', 'StrategyMission', 'StrategyProv', 'StrategyHosp', 'StrategyRegion', 'PlanType', 'Status', 'ReturnDate', 'Note'];
+var PLAN_FIELDS_ = ['MophProject', 'MophKpi', 'Name', 'Owner', 'Department', 'FundCode', 'Year', 'Seq', 'ProjectNo', 'ProjectTitle', 'StrategyMoph', 'StrategyMission', 'StrategyProv', 'StrategyHosp', 'StrategyRegion', 'PlanType', 'Status', 'ReturnDate', 'Note', 'BudgetCap'];
 function chgVal_(v) {
   if (v === true) return 'ใช่';
   if (v === false) return 'ไม่';
@@ -1370,12 +1743,17 @@ function plansSave_(user, p) {
   o.StrategyMoph = str_(pick('StrategyMoph')); o.StrategyMission = str_(pick('StrategyMission')); o.StrategyProv = str_(pick('StrategyProv'));
   o.StrategyHosp = str_(pick('StrategyHosp')); o.StrategyRegion = str_(pick('StrategyRegion'));
   o.ReturnDate = validDate_(pick('ReturnDate'), 'วันส่งคืนแผน');
+  var capRaw = pick('BudgetCap'), cap = capRaw === '' || capRaw === null || capRaw === undefined ? 0 : Number(String(capRaw).replace(/,/g, ''));
+  if (isNaN(cap) || cap < 0 || cap > 1e10) fail_('VALIDATION', 'วงเงินรวมโครงการต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป');
+  o.BudgetCap = round2_(cap);
+  o.MophProject = str_(pick('MophProject')); o.MophKpi = str_(pick('MophKpi'));
   checkStrategies_(o, fund);
+  alignCheck_(o, fund, d.MophProject !== undefined && d.StrategyMoph === undefined);
 
   // การแก้ที่กระทบงบ/สถานะสำคัญ ของแผนที่อนุมัติแล้ว ต้องมีเหตุผล
   var reason = str_(p.reason);
   if (!isNew) {
-    var sensitive = o.FundCode !== old.FundCode || o.Year !== String(old.Year) || (o.Status === 'ยกเลิก' && old.Status !== 'ยกเลิก') || (old.Status !== 'ร่าง' && o.Status === 'ร่าง');
+    var sensitive = o.FundCode !== old.FundCode || o.Year !== String(old.Year) || (o.Status === 'ยกเลิก' && old.Status !== 'ยกเลิก') || (old.Status !== 'ร่าง' && o.Status === 'ร่าง') || round2_(num_(old.BudgetCap)) !== o.BudgetCap;
     if (sensitive) reason = reasonOk_(old, p.reason);
   }
   o.UpdatedAt = now; o.UpdatedBy = user.Email;
@@ -1387,9 +1765,115 @@ function plansSave_(user, p) {
 }
 
 /** แก้ไขหลายแผนพร้อมกัน: changes ใช้ '__keep__' = ไม่เปลี่ยน, '__clear__' = ล้างค่า */
+
+// ---------------------------------------------------------------------------------
+// v2.10 · ความสอดคล้องกับยุทธศาสตร์กระทรวง (ยุทธศาสตร์ → แผนงาน → โครงการ → ตัวชี้วัด)
+// ---------------------------------------------------------------------------------
+var MOPH_SEEDED_ = false;
+function ensureMoph_() {
+  if (MOPH_SEEDED_) return; MOPH_SEEDED_ = true;
+  try {
+    if (readAll_('MophProgram').length) return;
+    var lock = LockService.getScriptLock(); lock.waitLock(8000);
+    try {
+      if (readAll_('MophProgram').length) return;
+      var wo = function (arr) { return arr.map(function (r, i) { var o = {}; for (var k in r) o[k] = r[k]; o.SortOrder = i + 1; o.Active = true; return o; }); };
+      insertMany_('MophProgram', wo(MOPH_FW_.programs)); insertMany_('MophProject', wo(MOPH_FW_.projects)); insertMany_('MophKpi', wo(MOPH_FW_.kpis));
+      CACHE_ = {};
+    } finally { lock.releaseLock(); }
+  } catch (e) { MOPH_SEEDED_ = false; }
+}
+
+/** ตรวจ/ปรับความสอดคล้องของโครงการ สธ. กับยุทธศาสตร์กระทรวง · force = ผู้เรียกส่งมาแต่โครงการ (ไม่ได้ส่งยุทธศาสตร์) → ยึดโครงการเป็นหลัก แล้วปรับยุทธศาสตร์ตาม */
+function alignCheck_(o, fund, force) {
+  if (fund.StrategySet === 'region') { o.MophProject = ''; o.MophKpi = ''; return; }
+  var code = str_(o.MophProject);
+  if (!code) { o.MophProject = ''; o.MophKpi = ''; return; }
+  var pj = findBy_('MophProject', 'Code', code);
+  if (!pj) fail_('VALIDATION', 'ไม่พบโครงการของกระทรวงรหัส ' + code);
+  var pg = findBy_('MophProgram', 'Code', pj.ProgramCode);
+  if (!pg) fail_('VALIDATION', 'โครงการนี้ยังไม่ผูกกับแผนงานของกระทรวง');
+  if (o.StrategyMoph && String(o.StrategyMoph) !== String(pg.StrategyCode) && !force) fail_('VALIDATION', 'โครงการ สธ. ที่เลือกอยู่ภายใต้ยุทธศาสตร์กระทรวงข้อ ' + pg.StrategyCode + ' ไม่ตรงกับข้อที่เลือกไว้');
+  o.StrategyMoph = String(pg.StrategyCode);
+  var ok = [];
+  str_(o.MophKpi).split(/[,\s]+/).filter(Boolean).forEach(function (k) { var r = findBy_('MophKpi', 'Code', k); if (r && String(r.ProjectCode) === code && ok.indexOf(k) < 0) ok.push(k); });
+  o.MophKpi = ok.join(',');
+}
+
+/** แนะนำโครงการ สธ. จากคำสำคัญในชื่อแผน (ให้คนยืนยันก่อนบันทึกเสมอ) */
+function suggestProject_(pl) {
+  var name = String(pl.Name || '') + ' ' + String(pl.ProjectTitle || ''), low = name.toLowerCase(), best = null;
+  Object.keys(ALIGN_HINTS_).forEach(function (code) {
+    var hits = ALIGN_HINTS_[code].filter(function (k) {
+      var kk = k.toLowerCase();
+      if (/^[a-z0-9 \-]+$/.test(kk)) return new RegExp('(^|[^a-z0-9])' + kk.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&') + '([^a-z0-9]|$)').test(low);   // คำอังกฤษต้องตรงทั้งคำ ไม่ให้ ITA ไปติดใน hospital
+      return low.indexOf(kk) >= 0;
+    });
+    if (!hits.length) return;
+    var sc = hits.reduce(function (a, k) { return a + (['คุณภาพ', 'บุคลากร', 'ติดตาม', 'ประเมินผล'].indexOf(k) >= 0 ? 1 : Math.min(3, Math.ceil(k.length / 3))); }, 0);
+    var pj = findBy_('MophProject', 'Code', code); if (!pj) return;
+    var pg = findBy_('MophProgram', 'Code', pj.ProgramCode); if (!pg) return;
+    if (pl.StrategyMoph && String(pl.StrategyMoph) === String(pg.StrategyCode)) sc += 2;
+    if (!best || sc > best.score) best = { code: code, score: sc, hits: hits.slice(0, 3) };
+  });
+  if (best && best.score < 2) return null;   // หลักฐานน้อยเกินไป ไม่แนะนำ
+  if (best) best.level = best.score >= 6 ? 'high' : (best.score >= 3 ? 'mid' : 'low');
+  return best;
+}
+
+function alignSummary_(user, p) {
+  ensureMoph_();
+  var money = user.Role !== 'viewer', fm = fundMap_(), act = function (r) { return r.Active === '' || r.Active === undefined || bool_(r.Active); };
+  var byOrder = function (a, b) { return num_(a.SortOrder) - num_(b.SortOrder); };
+  var all = readAll_('Plans'), years;
+  if (p.year === 'all') { var ys = {}; all.forEach(function (r) { if (r.Year) ys[String(r.Year)] = 1; }); years = Object.keys(ys).sort(); }
+  else years = [String(p.year || getSettings_().CurrentYear)];
+  var progs = readAll_('MophProgram').filter(act).sort(byOrder), projs = readAll_('MophProject').filter(act).sort(byOrder), kpis = readAll_('MophKpi').filter(act).sort(byOrder);
+  var pjMap = {}, pgMap = {}; projs.forEach(function (r) { pjMap[String(r.Code)] = r; }); progs.forEach(function (r) { pgMap[String(r.Code)] = r; });
+  var linked = {}, unlinked = [], mismatch = [], counted = 0, noKpi = 0;
+  years.forEach(function (y) {
+    buildModel_(y, {}).forEach(function (m) {
+      var pl = m.plan; if (pl.Status === 'ยกเลิก') return;
+      var fund = fm[pl.FundCode]; if (fund && fund.StrategySet === 'region') return;
+      counted++;
+      var e = { planId: pl.PlanId, name: pl.Name, year: String(pl.Year), status: pl.Status, fund: fund ? fund.Name : pl.FundCode, strategy: str_(pl.StrategyMoph),
+        kpis: str_(pl.MophKpi).split(',').filter(Boolean) };
+      if (money) { e.owner = pl.Owner; e.budget = m.calc.activeBudget; e.paid = m.calc.netPaid; }
+      var code = str_(pl.MophProject), pj = code ? pjMap[code] : null;
+      if (pj) {
+        (linked[code] = linked[code] || []).push(e);
+        if (!e.kpis.length) noKpi++;
+        var pg = pgMap[String(pj.ProgramCode)];
+        if (pg && e.strategy && e.strategy !== String(pg.StrategyCode)) { var mm = {}; for (var k in e) mm[k] = e[k]; mm.expected = String(pg.StrategyCode); mm.project = code; mismatch.push(mm); }
+      } else { if (money) e.suggest = suggestProject_(pl); unlinked.push(e); }
+    });
+  });
+  var kpiCover = {}, tree = readAll_('StrategyMoph').filter(act).sort(byOrder).map(function (st) {
+    return { code: String(st.Code), name: st.Name, plans: 0, programs: progs.filter(function (g) { return String(g.StrategyCode) === String(st.Code); }).map(function (g) {
+      var pjs = projs.filter(function (j) { return String(j.ProgramCode) === String(g.Code); }).map(function (j) {
+        var pls = linked[String(j.Code)] || [];
+        var ks = kpis.filter(function (k) { return String(k.ProjectCode) === String(j.Code); }).map(function (k) {
+          var n = pls.filter(function (e) { return e.kpis.indexOf(String(k.Code)) >= 0; }).length; if (n) kpiCover[k.Code] = 1;
+          return { code: String(k.Code), name: k.Name, planCount: n };
+        });
+        var o = { code: String(j.Code), name: j.Name, planCount: pls.length, kpis: ks, plans: pls };
+        if (money) o.budget = round2_(pls.reduce(function (a, e) { return a + num_(e.budget); }, 0));
+        return o;
+      });
+      return { code: String(g.Code), name: g.Name, planCount: pjs.reduce(function (a, j) { return a + j.planCount; }, 0), projects: pjs };
+    }) };
+  });
+  tree.forEach(function (st) { st.plans = st.programs.reduce(function (a, g) { return a + g.planCount; }, 0); });
+  var covered = projs.filter(function (j) { return (linked[String(j.Code)] || []).length; }).length;
+  return { years: years, canMoney: money, frameworkYear: progs.length ? String(progs[0].FrameworkYear || '') : '',
+    stats: { plans: counted, linked: counted - unlinked.length, unlinked: unlinked.length, mismatch: mismatch.length, noKpi: noKpi,
+      projects: projs.length, covered: covered, gaps: projs.length - covered, kpis: kpis.length, kpiCovered: Object.keys(kpiCover).length },
+    tree: tree, unlinked: unlinked, mismatch: mismatch };
+}
+
 function plansBulk_(user, p) {
   var ids = (p.planIds || []).slice(0, 200), ch = p.changes || {};
-  var allowed = ['Owner', 'Department', 'PlanType', 'Status', 'StrategyMoph', 'StrategyMission', 'StrategyProv', 'StrategyHosp', 'StrategyRegion', 'Note'];
+  var allowed = ['MophProject', 'MophKpi', 'Owner', 'Department', 'PlanType', 'Status', 'StrategyMoph', 'StrategyMission', 'StrategyProv', 'StrategyHosp', 'StrategyRegion', 'Note'];
   var patch = {}, n = 0;
   allowed.forEach(function (k) {
     if (ch[k] === undefined || ch[k] === null || ch[k] === '__keep__') return;
@@ -1569,6 +2053,11 @@ function actsSave_(user, p) {
 
   var warnings = [], c = actCalcById_(o.ActId);
   if (ACT_EXCLUDED_.indexOf(status) >= 0 && c.plannedBudget > 0 && c.netPaid === 0) warnings.push('กิจกรรมสถานะ "' + status + '" มีงบ ' + c.plannedBudget.toLocaleString() + ' บาท ซึ่งจะถูกนับเป็นงบที่ปลดล็อกได้ (โอนย้ายไปกิจกรรมอื่นได้)');
+  var plRow = findBy_('Plans', 'PlanId', planId), capV = plRow ? num_(plRow.BudgetCap) : 0;
+  if (capV > 0) {
+    var alloc = 0; readAll_('Activities').forEach(function (a) { if (a.PlanId === planId && !bool_(a.IsDeleted)) alloc += actCalcById_(a.ActId).plannedBudget; });
+    if (alloc > capV + 0.5) warnings.push('งบกิจกรรมรวม ' + round2_(alloc).toLocaleString() + ' บาท เกินวงเงินรวมโครงการ ' + round2_(capV).toLocaleString() + ' บาท (ระบบนับตามงบกิจกรรมจริง) — ตรวจสอบหรือขอปรับวงเงิน');
+  }
   audit_(user.Email, isNew ? 'เพิ่มกิจกรรม' : 'แก้ไขกิจกรรม', 'Activity', o.ActId, name);
   return { actId: o.ActId, updatedAt: now, warnings: warnings };
 }
@@ -2064,6 +2553,7 @@ function dashboard_(user, p) {
       });
     });
   });
+  inScope.forEach(function (m) { plannedNoDate += m.calc.unallocated || 0; });
   var cum = [], run = 0; paid.forEach(function (v) { run += v; cum.push(round2_(run)); });
   var monthly = { planned: planned.map(round2_), paid: paid.map(round2_), cumulativePaid: cum, plannedNoDate: round2_(plannedNoDate), paidNoDate: round2_(paidNoDate) };
 
@@ -2544,6 +3034,7 @@ function reportExport_(admin, p) {
       rows.push([m.plan.Seq, m.plan.Owner, m.plan.Name].concat(useCats.map(function (c) { return cs[c.Code] || ''; }))
         .concat([m.calc.plannedBudget, m.calc.activeBudget, m.calc.netPaid, m.calc.remaining, m.calc.pct, [m.plan.Status, m.overdue.is ? 'ค้างส่งสรุป' : ''].filter(String).join(' / ')]));
       gP += m.calc.plannedBudget; gA += m.calc.activeBudget; gN += m.calc.netPaid;
+      if (m.calc.unallocated > 0) rows.push(['', '', '   (วงเงินโครงการที่ยังไม่แจกแจงเป็นกิจกรรม)'].concat(useCats.map(function () { return ''; })).concat([m.calc.unallocated, m.calc.unallocated, 0, m.calc.unallocated, 0, 'วงเงินตั้งต้น']));
       m.items.forEach(function (x) {
         var xs = {}; x.lines.forEach(function (l) { xs[l.CategoryCode] = (xs[l.CategoryCode] || 0) + num_(l.Amount); });
         rows.push(['', '', '   ' + x.act.Name].concat(useCats.map(function (c) { return xs[c.Code] || ''; }))
@@ -2608,6 +3099,7 @@ var ACTIONS_ = {
   'att.update':       { role: 'user', write: true, fn: attUpdate_ },
   'att.delete':       { role: 'user', write: true, fn: attDelete_ },
   'fix.resolve':      { role: 'user', write: true, fn: fixResolve_ },
+  'align.summary':    { role: 'viewer', fn: alignSummary_ },
   'plans.bulk':       { role: 'user', write: true, fn: plansBulk_ },
   'plans.duplicate':  { role: 'user', write: true, fn: plansDuplicate_ },
   'acts.reorder':     { role: 'user', write: true, fn: actsReorder_ },
@@ -2749,6 +3241,7 @@ function setupSheet() {
   var def = ss_().getSheetByName('Sheet1') || ss_().getSheetByName('ชีต1');
   if (def && def.getLastRow() <= 1 && Object.keys(SCHEMA_).length) { try { ss_().deleteSheet(def); } catch (e) { /* ลบไม่ได้ก็ข้าม */ } }
   CACHE_ = {};
+  ensureMoph_(); report.seeded.push('กรอบยุทธศาสตร์ สธ. 2570 (ถ้ายังว่าง)');
 
   // ตั้งค่า: เติมเฉพาะคีย์ที่ยังไม่มี
   var have = {}; readAll_('Settings').forEach(function (r) { have[r.Key] = true; });

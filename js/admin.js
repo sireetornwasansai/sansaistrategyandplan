@@ -65,7 +65,7 @@
   App.actions.deleteUser = async el => { if (await App.confirm('ลบผู้ใช้ ' + el.dataset.id + ' ออกจากระบบ ?', 'ลบ', true)) { await App.api('users.delete', { email: el.dataset.id }); App.toast('ลบแล้ว', 'success'); await refreshBadge(); App.render(); } };
 
   // ===================================================================== ข้อมูลหลัก + ตั้งค่า
-  const MASTER_ORDER = ['funds', 'categories', 'planTypes', 'moph', 'mission', 'prov', 'hosp', 'departments', 'people'];
+  const MASTER_ORDER = ['funds', 'categories', 'planTypes', 'moph', 'moprog', 'mopro', 'mokpi', 'mission', 'prov', 'hosp', 'departments', 'people'];
   App.pages.masters = async function (view) {
     view.innerHTML = App.skeleton();
     const m = await App.api('masters.get'); S.masters = m;

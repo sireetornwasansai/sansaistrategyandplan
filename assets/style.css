@@ -422,3 +422,13 @@ input.invalid,select.invalid,textarea.invalid{border-color:#e11d48!important;box
 .cap-line .bar{height:6px;border-radius:99px;background:rgba(29,79,145,.15);margin-top:8px;overflow:hidden}
 .cap-line .bar i{display:block;height:100%;background:var(--grad);border-radius:99px}
 .cap-line .neg{color:#b42318}
+
+/* v2.10 · ความสอดคล้องยุทธศาสตร์ สธ. (ต่อท้าย assets/style.css) */
+.al-st{margin-bottom:12px}.al-in{padding:4px 18px 16px}.al-prog h3{font-size:.95rem;margin:14px 0 8px;color:var(--brand-ink)}.al-prog h3 small{font-weight:500}
+.al-pj{border:1px solid var(--bd);border-radius:12px;margin:6px 0;background:#fff}.al-pj.empty{background:#fafbfe}
+.al-pj>summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;align-items:center}.al-pj>summary::-webkit-details-marker{display:none}.al-pj>summary:hover{background:#f4f8fd;border-radius:12px}
+.al-kpis{padding:0 14px 8px}.al-kpi{display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:start;padding:6px 0;border-top:1px dashed var(--bd);font-size:.88rem}.al-kpi i{color:#9aa6bd;margin-top:3px}.al-kpi i.ok{color:#059669}.al-kpi b{color:var(--mut);font-weight:600}
+.al-plans{list-style:none;margin:0;padding:4px 14px 12px}.al-plan{padding:6px 0;border-top:1px dashed var(--bd);font-size:.9rem}.al-meta{display:block}
+.al-sg{margin-top:6px}.linkbtn{background:none;border:0;color:var(--brand);font:inherit;font-weight:650;cursor:pointer;padding:0;text-decoration:underline}
+.mk-box{display:grid;gap:6px;padding:8px 10px;border:1px solid var(--bd);border-radius:10px;background:#fafbfe}.mk-box label{display:flex;gap:8px;align-items:flex-start;font-size:.88rem;font-weight:500}.mk-box .muted{font-size:.85rem}
+select.compact{max-width:100%}

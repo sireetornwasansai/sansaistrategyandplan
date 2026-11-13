@@ -139,9 +139,11 @@
     S.cur = g;
     const p = g.plan, c = g.calc, edit = g.canEdit && App.can();
     const strat = (label, table, code) => code ? '<div><span class="muted">' + label + '</span> ' + esc(code) + ' — ' + esc(App.lookup(table, code) || '') + '</div>' : '';
+    const alignHtml = p => p.MophProject ? '<div><span class="muted">โครงการ สธ.</span> ' + esc(p.MophProject) + ' — ' + esc(App.lookup('mopro', p.MophProject) || '') + '</div>' + String(p.MophKpi || '').split(',').filter(Boolean).map(k => '<div class="small"><span class="muted">ตัวชี้วัด</span> ' + esc(App.lookup('mokpi', k) || k) + '</div>').join('') :
+      '<div><span class="muted">โครงการ สธ.</span> <span class="badge amber">ยังไม่เชื่อมโยง</span> <a href="#/align">ดูหน้าความสอดคล้อง</a></div>';
     const fund = App.fund(p.FundCode);
     const stratHtml = fund && fund.StrategySet === 'region' ? (p.StrategyRegion ? '<div><span class="muted">ยุทธศาสตร์ระดับเขต</span> ' + esc(p.StrategyRegion) + '</div>' : '') :
-      strat('ยุทธศาสตร์กระทรวง', 'moph', p.StrategyMoph) + strat('พันธกิจ สสจ.', 'mission', p.StrategyMission) + strat('ยุทธศาสตร์ สสจ.', 'prov', p.StrategyProv) + strat('ยุทธศาสตร์ รพ.', 'hosp', p.StrategyHosp);
+      strat('ยุทธศาสตร์กระทรวง', 'moph', p.StrategyMoph) + alignHtml(p) + strat('พันธกิจ สสจ.', 'mission', p.StrategyMission) + strat('ยุทธศาสตร์ สสจ.', 'prov', p.StrategyProv) + strat('ยุทธศาสตร์ รพ.', 'hosp', p.StrategyHosp);
     const kp = (l, v, cls, ico) => '<div class="card kpi sm ' + (cls || '') + '"><div class="kpi-text"><span class="kpi-label">' + l + '</span><b class="kpi-val">' + v + '</b></div><div class="icon-box"><i class="fas ' + (ico || 'fa-coins') + '"></i></div></div>';
     view.innerHTML =
       '<a href="#/plans" class="back"><i class="fas fa-arrow-left"></i> กลับรายการแผนงาน</a>' +
@@ -251,7 +253,9 @@
       App.field({ name: 'StrategyMoph', label: 'ยุทธศาสตร์กระทรวง สธ.', type: 'select', options: App.activeOpts('moph', 'Code', 'Name').map(o => ({ v: o.v, l: o.v + '. ' + o.l })), value: plan.StrategyMoph, full: true }) +
       App.field({ name: 'StrategyMission', label: 'พันธกิจ สสจ.เชียงใหม่', type: 'select', options: App.activeOpts('mission').map(o => ({ v: o.v, l: o.v + '. ' + o.l })), value: plan.StrategyMission, full: true }) +
       App.field({ name: 'StrategyProv', label: 'ยุทธศาสตร์ สสจ.เชียงใหม่', type: 'select', options: [], value: plan.StrategyProv, full: true, hint: 'แสดงเฉพาะข้อที่อยู่ภายใต้พันธกิจที่เลือก' }) +
-      App.field({ name: 'StrategyHosp', label: 'ยุทธศาสตร์ รพ.สันทราย', type: 'select', options: App.activeOpts('hosp').map(o => ({ v: o.v, l: o.v + '. ' + o.l })), value: plan.StrategyHosp, full: true }) + '</div>' +
+      App.field({ name: 'StrategyHosp', label: 'ยุทธศาสตร์ รพ.สันทราย', type: 'select', options: App.activeOpts('hosp').map(o => ({ v: o.v, l: o.v + '. ' + o.l })), value: plan.StrategyHosp, full: true }) +
+      '<div class="field full"><label for="f_MophProject">โครงการยุทธศาสตร์ สธ. <small class="muted">(เชื่อมแผนนี้กับแผนงาน/โครงการของกระทรวง)</small></label><select id="f_MophProject" name="MophProject"><option value="">— ยังไม่เชื่อมโยง —</option>' + (App.alignProjectOptions ? App.alignProjectOptions(plan.MophProject || '') : '') + '</select><small>เลือกแล้ว ระบบปรับ “ยุทธศาสตร์กระทรวง” ให้ตรงกันอัตโนมัติ</small></div>' +
+      '<div class="field full" id="mk-wrap" hidden><label>ตัวชี้วัดของกระทรวงที่แผนนี้ตอบ</label><div id="mk-box" class="mk-box"></div></div><input type="hidden" name="MophKpi" value="' + esc(plan.MophKpi || '') + '">' + '</div>' +
       '<div id="strat-region" class="full" hidden>' + App.field({ name: 'StrategyRegion', label: 'ยุทธศาสตร์ระดับเขต', value: plan.StrategyRegion || '', full: true }) + '</div>' +
       App.field({ name: 'Status', label: 'สถานะแผน', type: 'select', noBlank: true, options: App.masters().enums.planStatuses, value: plan.Status }) + App.field({ name: 'ReturnDate', label: 'วันที่ส่งคืนแผน (อนุมัติแล้ว)', type: 'date', value: plan.ReturnDate || '' }) +
       App.field({ name: 'BudgetCap', label: 'วงเงินรวมโครงการ (บาท)', type: 'number', step: '0.01', value: plan.BudgetCap || '', placeholder: 'เช่น 150000', full: true,
@@ -267,6 +271,22 @@
           prov.innerHTML = '<option value="">— เลือก —</option>' + list.map(p => '<option value="' + esc(p.Code) + '"' + (p.Code === keep ? ' selected' : '') + '>' + esc(p.Code + ' ' + p.Name) + '</option>').join('');
         };
         fillProv(plan.StrategyProv);
+        const mp = d.querySelector('[name=MophProject]'), mk = d.querySelector('[name=MophKpi]'), mkBox = d.querySelector('#mk-box'), mkWrap = d.querySelector('#mk-wrap'), moph = d.querySelector('[name=StrategyMoph]');
+        const MD = App.masters().data, kpiFor = code => (MD.mokpi || []).filter(k => k.Active !== false && String(k.ProjectCode) === String(code));
+        const drawKpi = () => {
+          const list = kpiFor(mp.value), have = String(mk.value || '').split(',').filter(Boolean);
+          mkWrap.hidden = !list.length;
+          mkBox.innerHTML = list.map(k => '<label><input type="checkbox" value="' + esc(k.Code) + '"' + (have.indexOf(k.Code) >= 0 ? ' checked' : '') + '> <span>' + esc(k.Name) + '</span></label>').join('');
+          mkBox.querySelectorAll('input').forEach(c => c.addEventListener('change', () => { mk.value = Array.from(mkBox.querySelectorAll('input:checked')).map(x => x.value).join(','); }));
+          mk.value = Array.from(mkBox.querySelectorAll('input:checked')).map(x => x.value).join(',');
+        };
+        drawKpi();
+        mp.addEventListener('change', () => {
+          const pj = (MD.mopro || []).find(j => j.Code === mp.value), pg = pj && (MD.moprog || []).find(g => String(g.Code) === String(pj.ProgramCode));
+          if (pg && moph) moph.value = String(pg.StrategyCode);
+          mk.value = ''; drawKpi();
+        });
+        if (moph) moph.addEventListener('change', () => { const cur = mp.value; mp.innerHTML = '<option value="">— ยังไม่เชื่อมโยง —</option>' + App.alignProjectOptions(cur, moph.value); if (mp.value !== cur) { mk.value = ''; drawKpi(); } });
         mis.addEventListener('change', () => fillProv(''));
         prov.addEventListener('change', () => { const pv = (App.masters().data.prov || []).find(p => p.Code === prov.value); if (pv) mis.value = String(pv.MissionCode); });
         const toggle = () => { const f = App.fund(fund.value), region = f && f.StrategySet === 'region'; d.querySelector('#strat-hospital').hidden = !!region; d.querySelector('#strat-region').hidden = !region; };
