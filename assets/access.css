@@ -90,3 +90,5 @@
 /* ลิงก์นโยบาย บนหน้า login */
 .login-legal{margin:10px 0 0;font-size:.8rem;color:var(--mut);text-align:center}
 .login-legal a{color:var(--brand);text-decoration:underline;margin:0 6px}
+.ac-role.on::after{content:"\2713";position:absolute;top:8px;right:12px;color:var(--brand);font-weight:700}
+.ac-hint .fa-circle-check{color:var(--brand);margin-right:4px}

@@ -36,6 +36,8 @@
   App.catName = c => App.lookup('categories', c) || c;
   App.activeOpts = (table, valueField, labelField) => (M().data[table] || []).filter(r => r.Active !== false).map(r => ({ v: r[valueField || 'Code'], l: r[labelField || 'Name'] }));
   App.can = () => !!App.state.user && ['user', 'admin'].indexOf(App.state.user.role) >= 0;
+  /** แก้ไขรายละเอียดแผน/กิจกรรม/งบ — แอดมินเสมอ; เจ้าหน้าที่เมื่อแอดมินเปิดสิทธิ์ (ฝั่งเซิร์ฟเวอร์ตรวจซ้ำทุกครั้ง) */
+  App.canDetail = () => !!App.state.user && (App.state.user.role === 'admin' || (App.state.user.role === 'user' && App.state.user.canDetail === true));
   App.isAdmin = () => !!App.state.user && App.state.user.role === 'admin';
   App.years = () => { const cur = +(M().settings.CurrentYear || 2569), a = []; for (let y = cur + 1; y >= cur - 3; y--) a.push(String(y)); return a; };
 

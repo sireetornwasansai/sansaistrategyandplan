@@ -99,12 +99,13 @@ var ADJ_TYPES_ = ['คืนเงิน', 'ปรับลดงบ', 'ปร�
 var DEFAULT_SETTINGS_ = [
   ['CurrentYear', '2569', 'ปีงบประมาณปัจจุบัน (พ.ศ.)'],
   ['ExcludeCancelledFromRate', 'TRUE', 'TRUE = ร้อยละเบิกจ่ายไม่นับงบของกิจกรรมที่ยกเลิก/ไม่เบิก (แนะนำ)'],
-  ['UserEditScope', 'all', 'all = เจ้าหน้าที่แก้ไขได้ทุกแผน | own = แก้ได้เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ'],
+  ['UserEditScope', 'dept', 'dept = เจ้าหน้าที่แก้ไขได้เฉพาะแผนของกลุ่มงานตนเอง (หรือแผนที่ตนเองเป็นผู้รับผิดชอบ) | own = เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ | all = ทุกแผน'],
   ['SummaryStartMonth', '8', 'เดือนเริ่มช่วงส่งสรุปโครงการ (1–12) — ทุกโครงการต้องส่งสรุปในช่วงนี้ ค่าตั้งต้น 8 = สิงหาคม'],
   ['FileSharing', 'link', 'link = แชร์ไฟล์หลักฐานแบบใครมีลิงก์เปิดดูได้ | private = ไม่แชร์'],
   ['ImportLocked', 'FALSE', 'TRUE = ล็อกไม่ให้รัน runImport ซ้ำ (ตั้งเป็น TRUE อัตโนมัติหลังนำเข้าเสร็จ)'],
   ['RequireReasonAfterApproval', 'TRUE', 'TRUE = แผนที่อนุมัติแล้ว ต้องระบุเหตุผลทุกครั้งที่แก้งบ/สถานะ/ลบรายการ (บันทึกในประวัติการแก้ไข)'],
   ['LockClosedPlans', 'TRUE', 'TRUE = แผนสถานะ "ปิด" แก้ไขได้เฉพาะแอดมิน'],
+  ['UserEditPlanDetail', 'FALSE', 'FALSE = รายละเอียดแผน/กิจกรรม/งบประมาณ แก้ไขได้เฉพาะแอดมิน (งานแผนยุทธศาสตร์) เจ้าหน้าที่ทำได้เฉพาะบันทึกความคืบหน้า/เบิกจ่าย/แนบหลักฐาน/ส่งสรุป | TRUE = เจ้าหน้าที่แก้รายละเอียดได้ด้วย'],
   ['SummaryEndMonth', '9', 'เดือนสิ้นสุดช่วงส่งสรุปโครงการ (1–12) — เลยสิ้นเดือนนี้แล้วยังไม่ส่ง = ค้างส่งสรุป ค่าตั้งต้น 9 = กันยายน (สิ้นเดือน 30 ก.ย.)']
 ];
 
@@ -1081,7 +1082,8 @@ function userRow_(email) {
 }
 function publicUser_(u) {
   return { email: u.Email, name: u.Name, role: u.Role, status: u.Status, department: u.Department || '', personName: u.PersonName || '', picture: u.Picture || '',
-    prefix: u.Prefix || '', firstName: u.FirstName || '', lastName: u.LastName || '', organization: u.Organization || '', planRole: u.PlanRole || '' };
+    prefix: u.Prefix || '', firstName: u.FirstName || '', lastName: u.LastName || '', organization: u.Organization || '', planRole: u.PlanRole || '',
+    canDetail: canEditDetail_(u) };
 }
 function linkPersonName_(email) {
   var e = String(email).toLowerCase(), ppl = readAll_('People');
@@ -1111,9 +1113,9 @@ function notifyAdminsNewUser_(u) {
 // ---------------------------------------------------------------------------------
 var PREFIXES_ = ['นาย', 'นาง', 'นางสาว', 'นพ.', 'พญ.', 'ทพ.', 'ทพญ.', 'ภก.', 'ภญ.', 'พว.', 'ดร.'];
 var PLAN_ROLES_ = [
-  { value: 'ผู้รับผิดชอบหลัก', desc: 'เจ้าของแผนงาน/โครงการ รับผิดชอบการดำเนินงานและรายงานผลโดยตรง', suggest: 'user' },
-  { value: 'ผู้รับผิดชอบร่วม', desc: 'ร่วมดำเนินงานและบันทึกข้อมูลในแผนงาน/โครงการที่ร่วมรับผิดชอบ', suggest: 'user' },
-  { value: 'ผู้ประสานงาน', desc: 'ประสานงานระหว่างหน่วยงาน ติดตามความคืบหน้า และจัดเตรียมเอกสาร', suggest: 'user' },
+  { value: 'ผู้รับผิดชอบหลัก', desc: 'เจ้าของโครงการของกลุ่มงาน รับผิดชอบการดำเนินงาน เบิกจ่าย และส่งสรุป', suggest: 'user' },
+  { value: 'ผู้รับผิดชอบร่วม', desc: 'ร่วมดำเนินงานและบันทึกความคืบหน้าในโครงการของกลุ่มงาน', suggest: 'user' },
+  { value: 'ผู้ประสานงาน', desc: 'ประสานงานโครงการของกลุ่มงาน ติดตามความคืบหน้า และแนบเอกสาร/หลักฐาน', suggest: 'user' },
   { value: 'หัวหน้าหน่วยงาน', desc: 'กำกับดูแล ติดตามและให้ความเห็นต่อภาพรวมแผนงาน/โครงการของหน่วยงาน', suggest: 'viewer' }
 ];
 // อักษรไทย (พยัญชนะ สระ วรรณยุกต์ — ไม่รวมเลขไทย) / อังกฤษ เว้นวรรค จุด ' -
@@ -1151,9 +1153,11 @@ function profileOut_(u) {
     department: u.Department || '', planRole: u.PlanRole || '', note: u.RequestNote || '', requestedAt: String(u.RequestedAt || '') };
 }
 function checkDomain_(email, isBootAdmin) {
-  var allowed = prop_('ALLOWED_EMAIL_DOMAINS', '').toLowerCase().split(',').map(function (s) { return s.trim(); }).filter(String);
-  if (!isBootAdmin && allowed.length && allowed.indexOf(email.split('@')[1] || '') < 0)
-    fail_('AUTH', 'อีเมลนี้ไม่อยู่ในโดเมนที่ระบบอนุญาต (' + allowed.join(', ') + ') กรุณาใช้อีเมลหน่วยงาน');
+  // รองรับค่าที่ใส่ @ นำหน้า/เว้นวรรค/คั่นด้วย ; หรือบรรทัดใหม่ เช่น "@gmail.com, @sansaihospital.go.th"
+  var allowed = prop_('ALLOWED_EMAIL_DOMAINS', '').toLowerCase().split(/[,;\s]+/).map(function (s) { return s.replace(/^@+/, '').trim(); }).filter(String);
+  var dom = String(email || '').toLowerCase().trim().split('@')[1] || '';
+  if (!isBootAdmin && allowed.length && allowed.indexOf(dom) < 0)
+    fail_('AUTH', 'อีเมลนี้ไม่อยู่ในโดเมนที่ระบบอนุญาต (' + allowed.map(function (d) { return '@' + d; }).join(', ') + ') กรุณาใช้อีเมลหน่วยงาน');
 }
 
 /** access.options: ตัวเลือกของแบบฟอร์ม (ไม่ต้องล็อกอิน — ไม่คืนข้อมูลส่วนบุคคลของผู้ใช้ใดเลย) */
@@ -1420,8 +1424,8 @@ function settingsSave_(admin, p) {
   var def = DEFAULT_SETTINGS_.filter(function (d) { return d[0] === key; })[0];
   if (!def) fail_('VALIDATION', 'ไม่รู้จักการตั้งค่า ' + key);
   if (key === 'CurrentYear' && !/^25\d\d$/.test(val)) fail_('VALIDATION', 'ปีงบประมาณต้องเป็น พ.ศ. 4 หลัก เช่น 2569');
-  if ((key === 'ExcludeCancelledFromRate' || key === 'ImportLocked' || key === 'RequireReasonAfterApproval' || key === 'LockClosedPlans') && ['TRUE', 'FALSE'].indexOf(val.toUpperCase()) < 0) fail_('VALIDATION', 'ค่าต้องเป็น TRUE หรือ FALSE');
-  if (key === 'UserEditScope' && ['all', 'own'].indexOf(val) < 0) fail_('VALIDATION', 'ค่าต้องเป็น all หรือ own');
+  if ((key === 'ExcludeCancelledFromRate' || key === 'ImportLocked' || key === 'RequireReasonAfterApproval' || key === 'LockClosedPlans' || key === 'UserEditPlanDetail') && ['TRUE', 'FALSE'].indexOf(val.toUpperCase()) < 0) fail_('VALIDATION', 'ค่าต้องเป็น TRUE หรือ FALSE');
+  if (key === 'UserEditScope' && ['dept', 'own', 'all'].indexOf(val) < 0) fail_('VALIDATION', 'ค่าต้องเป็น dept, own หรือ all');
   if (key === 'FileSharing' && ['link', 'private'].indexOf(val) < 0) fail_('VALIDATION', 'ค่าต้องเป็น link หรือ private');
   if ((key === 'SummaryStartMonth' || key === 'SummaryEndMonth') && !(/^\d{1,2}$/.test(val) && num_(val) >= 1 && num_(val) <= 12)) fail_('VALIDATION', 'เดือนต้องเป็นตัวเลข 1–12');
   if (/^(TRUE|FALSE)$/i.test(val)) val = val.toUpperCase();
@@ -1618,21 +1622,31 @@ function plansGet_(user, p) {
   return { plan: brief.plan, calc: brief.calc, overdue: brief.overdue, activities: m.items.map(actFull_), planAdjs: m.planAdjs.map(adjOut_),
     planDisbs: planDisbs, attachments: attListFor_(p.planId),
     canEdit: canEditPlan_(user, pl) && !(pl.Status === 'ปิด' && user.Role !== 'admin' && getSettings_().LockClosedPlans === 'TRUE'),
+    canEditDetail: canEditPlan_(user, pl) && canEditDetail_(user) && !(pl.Status === 'ปิด' && user.Role !== 'admin' && getSettings_().LockClosedPlans === 'TRUE'),
     locked: pl.Status === 'ปิด' && getSettings_().LockClosedPlans === 'TRUE',
     reasonRequired: reasonRequired_(pl),
     deletedActivities: readAll_('Activities').filter(function (a) { return a.PlanId === p.planId && bool_(a.IsDeleted); }).map(function (a) { return { ActId: a.ActId, No: String(a.No), Name: a.Name }; }) };
 }
 
+function normDept_(s) { return String(s || '').replace(/\s+/g, '').toLowerCase(); }
+/** แก้ไข "รายละเอียดแผน/กิจกรรม/งบ" ได้หรือไม่ — แอดมินเสมอ; เจ้าหน้าที่ต้องเปิด UserEditPlanDetail = TRUE */
+function canEditDetail_(user) {
+  return user.Role === 'admin' || (user.Role === 'user' && getSettings_().UserEditPlanDetail === 'TRUE');
+}
+/** แก้ไขแผนได้หรือไม่ (บันทึกความคืบหน้า/เบิกจ่าย/หลักฐาน/ส่งสรุป) — ขอบเขต UserEditScope: dept = แผนของกลุ่มงานตนเอง */
 function canEditPlan_(user, plan) {
   if (user.Role === 'admin') return true;
   if (user.Role !== 'user') return false;
-  if (getSettings_().UserEditScope !== 'own') return true;
-  return !!user.PersonName && String(plan.Owner) === String(user.PersonName);
+  var scope = getSettings_().UserEditScope;
+  if (scope !== 'own' && scope !== 'dept') return true;
+  var mine = !!user.PersonName && String(plan.Owner) === String(user.PersonName);
+  if (scope === 'dept') { var d = normDept_(user.Department); return mine || (!!d && normDept_(plan.Department) === d); }
+  return mine;
 }
 function mustEditPlan_(user, planId) {
   var pl = findBy_('Plans', 'PlanId', planId);
   if (!pl || bool_(pl.IsDeleted)) fail_('NOT_FOUND', 'ไม่พบแผนงาน');
-  if (!canEditPlan_(user, pl)) fail_('FORBIDDEN', 'ท่านแก้ไขได้เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ');
+  if (!canEditPlan_(user, pl)) fail_('FORBIDDEN', getSettings_().UserEditScope === 'dept' ? 'ท่านแก้ไขได้เฉพาะแผนของกลุ่มงานตนเอง (หากกลุ่มงานของท่านไม่ตรงกับทะเบียน กรุณาแจ้งแอดมิน)' : 'ท่านแก้ไขได้เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ');
   if (pl.Status === 'ปิด' && user.Role !== 'admin' && getSettings_().LockClosedPlans === 'TRUE') fail_('LOCKED', 'แผนนี้อยู่ในสถานะ "ปิด" แก้ไขได้เฉพาะแอดมิน');
   return pl;
 }
@@ -3091,17 +3105,17 @@ var ACTIONS_ = {
   'fix.list':         { role: 'viewer', fn: fixList_ },
   'history.list':     { role: 'viewer', fn: historyList_ },
 
-  'plans.save':       { role: 'user', write: true, fn: plansSave_ },
+  'plans.save':       { role: 'user', detail: true, write: true, fn: plansSave_ },
   'acts.progress':    { role: 'user', write: true, fn: actsProgress_ },
   'records.save':     { role: 'user', write: true, fn: recordsSave_ },
   'records.delete':   { role: 'user', write: true, fn: recordsDelete_ },
   'plans.markSummary':{ role: 'user', write: true, fn: plansMarkSummary_ },
-  'acts.save':        { role: 'user', write: true, fn: actsSave_ },
-  'acts.delete':      { role: 'user', write: true, fn: actsDelete_ },
+  'acts.save':        { role: 'user', detail: true, write: true, fn: actsSave_ },
+  'acts.delete':      { role: 'user', detail: true, write: true, fn: actsDelete_ },
   'disb.save':        { role: 'user', write: true, fn: disbSave_ },
   'disb.delete':      { role: 'user', write: true, fn: disbDelete_ },
-  'adj.save':         { role: 'user', write: true, fn: adjSave_ },
-  'adj.delete':       { role: 'user', write: true, fn: adjDelete_ },
+  'adj.save':         { role: 'user', detail: true, write: true, fn: adjSave_ },
+  'adj.delete':       { role: 'user', detail: true, write: true, fn: adjDelete_ },
   'file.upload':      { role: 'user', write: true, fn: fileUpload_ },
   'att.list':         { role: 'viewer', fn: attList_ },
   'att.upload':       { role: 'user', fn: attUpload_ },          // ไม่ล็อกสคริปต์ระหว่างสร้างไฟล์ใน Drive (ล็อกเฉพาะตอนบันทึกชีต)
@@ -3110,13 +3124,13 @@ var ACTIONS_ = {
   'att.delete':       { role: 'user', write: true, fn: attDelete_ },
   'fix.resolve':      { role: 'user', write: true, fn: fixResolve_ },
   'align.summary':    { role: 'viewer', fn: alignSummary_ },
-  'plans.bulk':       { role: 'user', write: true, fn: plansBulk_ },
-  'plans.duplicate':  { role: 'user', write: true, fn: plansDuplicate_ },
-  'acts.reorder':     { role: 'user', write: true, fn: actsReorder_ },
-  'acts.move':        { role: 'user', write: true, fn: actsMove_ },
-  'acts.duplicate':   { role: 'user', write: true, fn: actsDuplicate_ },
-  'acts.restore':     { role: 'user', write: true, fn: actsRestore_ },
-  'budget.transfer':  { role: 'user', write: true, fn: budgetTransfer_ },
+  'plans.bulk':       { role: 'user', detail: true, write: true, fn: plansBulk_ },
+  'plans.duplicate':  { role: 'user', detail: true, write: true, fn: plansDuplicate_ },
+  'acts.reorder':     { role: 'user', detail: true, write: true, fn: actsReorder_ },
+  'acts.move':        { role: 'user', detail: true, write: true, fn: actsMove_ },
+  'acts.duplicate':   { role: 'user', detail: true, write: true, fn: actsDuplicate_ },
+  'acts.restore':     { role: 'user', detail: true, write: true, fn: actsRestore_ },
+  'budget.transfer':  { role: 'user', detail: true, write: true, fn: budgetTransfer_ },
 
   'plans.delete':     { role: 'admin', write: true, fn: plansDelete_ },
   'masters.save':     { role: 'admin', write: true, fn: mastersSave_ },
@@ -3173,6 +3187,7 @@ function handle_(req) {
     if (!def) fail_('BAD_REQUEST', 'ไม่รู้จักคำสั่ง ' + action);
     var user = requireUser_(req.token, def.role);
     if (def.write && maintenanceOn_() && user.Role !== 'admin') fail_('MAINTENANCE', 'ระบบปิดปรับปรุงชั่วคราว — ดูข้อมูลได้ แต่บันทึกไม่ได้ กรุณาลองใหม่ภายหลัง');
+    if (def.detail && !canEditDetail_(user)) fail_('FORBIDDEN', 'รายละเอียดแผนงาน/โครงการ กิจกรรม และงบประมาณ แก้ไขได้เฉพาะแอดมิน (งานแผนยุทธศาสตร์) — หากต้องการแก้ไข กรุณาแจ้งแอดมิน');
     var data = def.write ? withLock_(function () { return def.fn(user, params); }) : def.fn(user, params);
     return { ok: true, data: data };
   } catch (err) {

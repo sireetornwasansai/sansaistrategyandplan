@@ -8,10 +8,10 @@
   const OTHER = '__other__';
   const ROLE_ICON = ['fa-star', 'fa-user-group', 'fa-handshake', 'fa-user-tie'];
   const ROLE_HINT = {
-    'ผู้รับผิดชอบหลัก': 'แอดมินมักกำหนดสิทธิ์ “เจ้าหน้าที่ (แก้ไขได้)” เพื่อบันทึกความคืบหน้าและการเบิกจ่าย',
-    'ผู้รับผิดชอบร่วม': 'แอดมินมักกำหนดสิทธิ์ “เจ้าหน้าที่ (แก้ไขได้)” ตามแผนงาน/โครงการที่ร่วมรับผิดชอบ',
-    'ผู้ประสานงาน': 'แอดมินมักกำหนดสิทธิ์ “เจ้าหน้าที่ (แก้ไขได้)” เพื่อติดตามและจัดเตรียมเอกสาร',
-    'หัวหน้าหน่วยงาน': 'แอดมินมักกำหนดสิทธิ์ “ผู้ดูข้อมูล (อ่านอย่างเดียว)” หากต้องการสิทธิ์แก้ไขให้ระบุในหมายเหตุ'
+    'ผู้รับผิดชอบหลัก': 'มักได้สิทธิ์ “เจ้าหน้าที่” — บันทึกความคืบหน้า การเบิกจ่าย แนบหลักฐาน และส่งสรุปโครงการของกลุ่มงานตนเอง (รายละเอียดโครงการ/งบ แอดมินเป็นผู้กรอก)',
+    'ผู้รับผิดชอบร่วม': 'มักได้สิทธิ์ “เจ้าหน้าที่” — บันทึกความคืบหน้า การเบิกจ่าย และแนบหลักฐานของโครงการในกลุ่มงานตนเอง',
+    'ผู้ประสานงาน': 'มักได้สิทธิ์ “เจ้าหน้าที่” — ติดตามความคืบหน้า แนบเอกสาร/หลักฐานของโครงการในกลุ่มงานตนเอง',
+    'หัวหน้าหน่วยงาน': 'มักได้สิทธิ์ “ผู้ดูข้อมูล (อ่านอย่างเดียว)” เพื่อกำกับติดตามภาพรวม หากต้องการสิทธิ์บันทึกข้อมูลให้ระบุในหมายเหตุ'
   };
   const ac = { opts: null, cred: '', r: null, step: 1, d: {}, hint: {} };
 
@@ -57,6 +57,8 @@
     const orgVal = d.organization === undefined ? (o.organizations[0] || '') : d.organization;
     const orgIsList = o.organizations.indexOf(orgVal) >= 0, orgSel = orgIsList ? orgVal : (orgVal ? OTHER : o.organizations[0]);
     const fn = d.firstName !== undefined ? d.firstName : (ac.hint.firstName || ''), ln = d.lastName !== undefined ? d.lastName : (ac.hint.lastName || '');
+    const nk = x => String(x || '').replace(/\s+/g, '').toLowerCase();
+    const deptVal = d.department || '', deptHit = o.departments.find(x => nk(x) === nk(deptVal)) || '', deptSel = deptHit || (deptVal ? OTHER : '');
     const re = ac.r && ac.r.status === 'rejected';
     const el = frame(userBox() + steps(1) + '<h2>ข้อมูลผู้ขอเข้าใช้งาน</h2><p class="muted">กรอกข้อมูลตามจริงเพื่อให้ผู้ดูแลระบบตรวจสอบและกำหนดสิทธิ์ได้ถูกต้อง</p>' +
       (re ? note('warn', '<b>คำขอครั้งก่อนไม่ได้รับอนุมัติ:</b> ' + esc(ac.r.reason || 'ไม่ระบุเหตุผล') + '<br>กรุณาแก้ไขข้อมูลแล้วยื่นคำขอใหม่') : '') +
@@ -69,23 +71,26 @@
       '<fieldset><legend>หน่วยงานที่สังกัด</legend><div class="ac-grid two">' +
       fld('a_orgsel', 'หน่วยงาน', '<select id="a_orgsel">' + o.organizations.map(x => '<option value="' + esc(x) + '"' + (x === orgSel ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '<option value="' + OTHER + '"' + (orgSel === OTHER ? ' selected' : '') + '>หน่วยงานอื่น (ระบุ)</option></select>') +
       '<div id="a_orgbox"' + (orgSel === OTHER ? '' : ' hidden') + '>' + fld('a_org', 'ระบุชื่อหน่วยงาน', '<input id="a_org" maxlength="120" value="' + esc(orgIsList ? '' : orgVal) + '" placeholder="เช่น รพ.สต.บ้านใหม่ / สสอ.สันทราย">') + '</div>' +
-      fld('a_dept', 'กลุ่มงาน / ฝ่าย / งาน', '<input id="a_dept" list="a_deptlist" maxlength="120" autocomplete="off" value="' + esc(d.department || '') + '" placeholder="พิมพ์เพื่อค้นหา หรือเลือกจากรายการ">' +
-        '<datalist id="a_deptlist">' + o.departments.map(x => '<option value="' + esc(x) + '"></option>').join('') + '</datalist>', '<small>เลือกจากรายการเพื่อให้ตรงกับทะเบียน หากไม่พบให้พิมพ์ชื่อเอง</small>') +
+      fld('a_deptsel', 'กลุ่มงาน / ฝ่าย / งาน', '<select id="a_deptsel"><option value="">เลือกกลุ่มงาน…</option>' + o.departments.map(x => '<option value="' + esc(x) + '"' + (x === deptSel ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '<option value="' + OTHER + '"' + (deptSel === OTHER ? ' selected' : '') + '>ไม่พบกลุ่มงานของฉัน (ระบุเอง)</option></select>', '<small>เลือกให้ตรงกับทะเบียน — ระบบใช้กลุ่มงานนี้กำหนดว่าท่านดูแล/บันทึกโครงการของกลุ่มงานใด</small>') +
+      '<div id="a_deptbox"' + (deptSel === OTHER ? '' : ' hidden') + '>' + fld('a_dept', 'ระบุชื่อกลุ่มงาน', '<input id="a_dept" maxlength="120" autocomplete="off" value="' + esc(deptSel === OTHER ? deptVal : '') + '" placeholder="เช่น กลุ่มงานเภสัชกรรม">') + '</div>' +
       '</div></fieldset><div class="ac-actions"><span class="muted small">ขั้นตอน 1 จาก 3</span><button type="submit" class="btn primary">ถัดไป <i class="fas fa-arrow-right"></i></button></div></form>');
     bindOther();
     const sel = $('#a_orgsel'), box = $('#a_orgbox');
     sel.addEventListener('change', () => { box.hidden = sel.value !== OTHER; if (sel.value === OTHER) $('#a_org').focus(); });
     ['a_prefix', 'a_first', 'a_last', 'a_org', 'a_dept'].forEach(id => { const x = $('#' + id); if (x) x.addEventListener('input', () => setErr(id, '')); });
+    const dsel = $('#a_deptsel'), dbox = $('#a_deptbox');
+    dsel.addEventListener('change', () => { dbox.hidden = dsel.value !== OTHER; setErr('a_deptsel', ''); if (dsel.value === OTHER) $('#a_dept').focus(); });
     $('#ac-f1').addEventListener('submit', e => {
       e.preventDefault();
       const prefix = $('#a_prefix').value, first = clean($('#a_first').value, 60), last = clean($('#a_last').value, 60);
-      const org = sel.value === OTHER ? clean($('#a_org').value, 120) : sel.value, dept = clean($('#a_dept').value, 120);
+      const org = sel.value === OTHER ? clean($('#a_org').value, 120) : sel.value, dept = dsel.value === OTHER ? clean($('#a_dept').value, 120) : dsel.value;
       const errs = [
         ['a_prefix', prefix ? '' : 'กรุณาเลือกคำนำหน้า'],
         ['a_first', !first ? 'กรุณากรอกชื่อ' : !NAME_RE.test(first) ? 'ใช้ได้เฉพาะตัวอักษรไทย/อังกฤษ (ห้ามมีตัวเลขหรือสัญลักษณ์)' : ''],
         ['a_last', !last ? 'กรุณากรอกนามสกุล' : !NAME_RE.test(last) ? 'ใช้ได้เฉพาะตัวอักษรไทย/อังกฤษ (ห้ามมีตัวเลขหรือสัญลักษณ์)' : ''],
         ['a_org', sel.value === OTHER && org.length < 2 ? 'กรุณาระบุชื่อหน่วยงาน' : ''],
-        ['a_dept', dept.length < 2 ? 'กรุณากรอกกลุ่มงาน' : '']
+        ['a_deptsel', dsel.value ? '' : 'กรุณาเลือกกลุ่มงาน (หากไม่พบ ให้เลือก “ไม่พบกลุ่มงานของฉัน” แล้วพิมพ์เอง)'],
+        ['a_dept', dsel.value === OTHER && dept.length < 2 ? 'กรุณาระบุชื่อกลุ่มงาน' : '']
       ];
       let bad = null; errs.forEach(x => { if (!setErr(x[0], x[1]) && !bad) bad = x[0]; });
       if (bad) { $('#' + bad).focus(); return; }
@@ -101,14 +106,14 @@
     frame(userBox() + steps(2) + '<h2>หน้าที่ต่อแผนงานและโครงการ</h2><p class="muted">เลือกบทบาทที่ตรงกับหน้าที่จริงของท่านมากที่สุด 1 ข้อ</p>' +
       '<form id="ac-f2" novalidate><fieldset><legend class="sr-only" style="position:absolute;left:-9999px">หน้าที่ต่อแผนงานและโครงการ</legend><div class="ac-roles" role="radiogroup" aria-label="หน้าที่ต่อแผนงานและโครงการ">' +
       o.planRoles.map((r, i) => '<label class="ac-role' + (r.value === d.planRole ? ' on' : '') + '"><input type="radio" name="planRole" value="' + esc(r.value) + '"' + (r.value === d.planRole ? ' checked' : '') + '><span class="ico"><i class="fas ' + (ROLE_ICON[i] || 'fa-user') + '"></i></span><span><b>' + esc(r.value) + '</b><small>' + esc(r.desc) + '</small></span></label>').join('') +
-      '</div><div class="ac-err" id="e_a_role" role="alert" hidden></div><p class="ac-hint" id="a_rolehint"' + (d.planRole ? '' : ' hidden') + '>' + esc(ROLE_HINT[d.planRole] || '') + '</p></fieldset>' +
+      '</div><div class="ac-err" id="e_a_role" role="alert" hidden></div><p class="ac-hint" id="a_rolehint"' + (d.planRole ? '' : ' hidden') + '>' + (d.planRole ? '<i class="fas fa-circle-check"></i> เลือกแล้ว: <b>' + esc(d.planRole) + '</b> — ' + esc(ROLE_HINT[d.planRole] || '') : '') + '</p></fieldset>' +
       '<div class="field"><label for="a_note">หมายเหตุถึงผู้ดูแลระบบ <small>(ไม่บังคับ)</small></label><textarea id="a_note" rows="3" maxlength="300" placeholder="เช่น รับผิดชอบโครงการ… / ขอสิทธิ์แก้ไขแผนของกลุ่มงาน…">' + esc(d.note || '') + '</textarea><small><span id="a_cnt">' + String(d.note || '').length + '</span>/300 · อย่าใส่ข้อมูลผู้ป่วยหรือข้อมูลลับ</small></div>' +
       '<div class="ac-actions"><button type="button" class="btn ghost" id="ac-back"><i class="fas fa-arrow-left"></i> ย้อนกลับ</button><button type="submit" class="btn primary">ถัดไป <i class="fas fa-arrow-right"></i></button></div></form>');
     bindOther();
     const radios = document.querySelectorAll('#ac-f2 input[name=planRole]');
     radios.forEach(r => r.addEventListener('change', () => {
       document.querySelectorAll('.ac-role').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
-      const h = $('#a_rolehint'); h.hidden = false; h.textContent = ROLE_HINT[r.value] || ''; setErr('a_role', '');
+      const h = $('#a_rolehint'); h.hidden = false; h.innerHTML = '<i class="fas fa-circle-check"></i> เลือกแล้ว: <b>' + esc(r.value) + '</b> — ' + esc(ROLE_HINT[r.value] || ''); setErr('a_role', '');
     }));
     $('#a_note').addEventListener('input', e => { $('#a_cnt').textContent = e.target.value.length; });
     $('#ac-back').addEventListener('click', () => { keep2(); ac.step = 1; step1(); });
