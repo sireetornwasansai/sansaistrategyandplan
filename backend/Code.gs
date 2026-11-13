@@ -33,7 +33,7 @@
  * =====================================================================================
  */
 
-var APP_VERSION = '2.11.0';
+var APP_VERSION = '2.11.2';
 var TZ_ = (function () { try { return PropertiesService.getScriptProperties().getProperty('TIMEZONE') || 'Asia/Bangkok'; } catch (e) { return 'Asia/Bangkok'; } })();
 /** ค่าตั้งต้นของ Script Properties ที่ปรับได้ (ไม่ตั้ง = ใช้ค่านี้) — setupSheet() จะเขียนค่าเหล่านี้ลง Script Properties ให้เห็นและแก้ได้ */
 var PROP_DEFAULTS_ = { TIMEZONE: 'Asia/Bangkok', ORG_NAME: 'โรงพยาบาลสันทราย จังหวัดเชียงใหม่', SESSION_HOURS: '12', MAX_UPLOAD_MB: '10', MAX_ATTACH_MB: '20', MAX_ATTACH_PER_PLAN: '50',
@@ -1103,8 +1103,8 @@ function notifyAdminsNewUser_(u) {
       .map(function (r) { return r.Email; }).join(',');
   }
   sendMailSafe_(to, 'มีผู้ขอสิทธิ์เข้าใช้งานระบบแผนงานโครงการ ' + orgName_(),
-    'ผู้ขอ: ' + (u.Name || '-') + ' <' + u.Email + '>\nหน่วยงาน: ' + (u.Organization || '-') + '\nกลุ่มงาน: ' + (u.Department || '-') +
-    '\nหน้าที่ต่อแผนงาน/โครงการ: ' + (u.PlanRole || '-') + (u.RequestNote ? '\nหมายเหตุ: ' + u.RequestNote : '') +
+    'ผู้ขอ: ' + (u.Name || '-') + ' <' + u.Email + '>\nหน่วยงาน: ' + (u.Organization || '-') + '\nกลุ่มงาน: ' + (u.Department || '-') + (masterDept_(u.Department) ? '' : '  (⚠ ไม่ตรงทะเบียนกลุ่มงาน — แอดมินต้องเลือกกลุ่มงานให้ถูกต้องก่อนอนุมัติเป็นเจ้าหน้าที่)') +
+    '\nหน้าที่ต่อแผนงาน/โครงการ: ' + (u.PlanRole || '-') + (function () { var r = PLAN_ROLES_.filter(function (x) { return x.value === u.PlanRole; })[0]; return r ? ' (แนะนำสิทธิ์: ' + (r.suggest === 'user' ? 'เจ้าหน้าที่' : 'ผู้ดูข้อมูล') + ')' : ''; })() + (u.RequestNote ? '\nหมายเหตุ: ' + u.RequestNote : '') +
     '\n\nกรุณาเข้าสู่ระบบ > เมนู "ผู้ใช้งาน" เพื่ออนุมัติหรือปฏิเสธ' + appLink_());
 }
 
@@ -1197,6 +1197,11 @@ function accessRequest_(p) {
   u.Status = 'pending'; if (notify) u.RequestedAt = now;
   u.Note = ''; u.Picture = keepAvatar_(u, claims);
   update_('Users', u._row, u);
+  var chk = userRow_(email); // v2.11.2: อ่านกลับยืนยันว่าบันทึกครบจริง (กันกรณีหัวตารางชีตไม่ครบ/หลังบ้านเวอร์ชันเก่า) — ไม่ครบให้แจ้งผู้ขอ ไม่ใช่ตอบสำเร็จเงียบ ๆ
+  if (!chk || chk.FirstName !== c.first || chk.LastName !== c.last || chk.Organization !== c.org || chk.Department !== c.dept || chk.PlanRole !== c.role || chk.Status !== 'pending') {
+    audit_(email, 'บันทึกคำขอไม่ครบ', 'User', email, 'ตรวจพบข้อมูลที่อ่านกลับไม่ตรง — ตรวจหัวตารางชีต Users / รัน setupSheet()');
+    fail_('SERVER', 'ระบบบันทึกข้อมูลคำขอไม่ครบ กรุณาแจ้งผู้ดูแลระบบ (ตรวจหัวตารางชีต Users แล้วรัน setupSheet())');
+  }
   audit_(email, notify ? 'ส่งคำขออนุญาตเข้าใช้งาน' : 'แก้ไขคำขออนุญาต', 'User', email, u.PlanRole + ' · ' + u.Organization + ' / ' + u.Department);
   if (notify) notifyAdminsNewUser_(u);
   return { status: 'pending', message: 'ส่งคำขอเรียบร้อยแล้ว', email: email, name: u.Name, picture: u.Picture, profile: profileOut_(u) };
@@ -1269,6 +1274,7 @@ function usersList_(admin) {
     o.RequestedAt = String(o.RequestedAt); o.ApprovedAt = String(o.ApprovedAt); o.LastLoginAt = String(o.LastLoginAt); o.ConsentAt = String(o.ConsentAt || '');
     var k = o.FirstName ? normName_(o.FirstName + o.LastName) : '';
     o.matchPerson = (!o.PersonName && k) ? (byNorm[k] || '') : '';   // แนะนำผูกกับทะเบียนผู้รับผิดชอบ
+    o.profileMissing = (o.Status === 'pending' || o.Status === 'new') && !o.FirstName; // ยื่นคำขอแล้วแต่ไม่มีข้อมูลแบบขออนุญาต
     o.dupName = !!(k && cnt[k] > 1);                                  // ชื่อซ้ำกับบัญชีอื่น (อาจขอด้วยอีเมลสองบัญชี)
     var pr = PLAN_ROLES_.filter(function (x) { return x.value === o.PlanRole; })[0]; o.suggestRole = pr ? pr.suggest : '';
     return o;

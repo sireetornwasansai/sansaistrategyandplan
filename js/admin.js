@@ -9,21 +9,24 @@
   const isOther = u => u.Status === 'rejected' || u.Status === 'suspended' || u.Status === 'new';
   const ST_LABEL = { new: 'ยังไม่ส่งคำขอ', pending: 'รออนุมัติ', approved: 'อนุมัติแล้ว', rejected: 'ปฏิเสธ', suspended: 'ระงับ' };
   const ST_CLASS = { new: 'gray', pending: 'amber', approved: 'green', rejected: 'red', suspended: 'dark' };
+  const FE_VERSION = '2.11.2'; // เวอร์ชันหลังบ้าน (Apps Script) ที่หน้าเว็บนี้ต้องใช้คู่กัน
+  const verLt = (a, b) => { const x = String(a || '0').split('.').map(Number), y = String(b || '0').split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
   const ROLE_LABEL = { admin: 'แอดมิน', user: 'เจ้าหน้าที่ (แก้ไขได้)', viewer: 'ผู้ดูข้อมูล (อ่านอย่างเดียว)' };
 
   App.pages.users = async function (view) {
     view.innerHTML = App.skeleton();
-    const users = await App.api('users.list');
+    const [users, ping] = await Promise.all([App.api('users.list'), App.api('ping', {}, { noLogout: true }).catch(() => null)]);
     S.users = users;
+    const verWarn = ping && verLt(ping.version, FE_VERSION) ? '<div class="alert info" style="margin-bottom:12px"><i class="fas fa-triangle-exclamation"></i> <b>Apps Script ยังเป็นเวอร์ชัน ' + esc(ping.version) + '</b> (หน้าเว็บนี้ต้องใช้ ' + FE_VERSION + ') — ข้อมูลที่ผู้ขอกรอก (กลุ่มงาน/หน่วยงาน/หน้าที่) อาจไม่ถูกบันทึกหรือแสดงไม่ครบ กรุณาวาง backend/Code.gs ล่าสุด แล้ว Deploy › Manage deployments › New version และรัน setupSheet()</div>' : '';
     const tab = S.userTab || (users.some(u => u.Status === 'pending') ? 'pending' : 'approved');
     const rows = users.filter(u => tab === 'all' || (tab === 'other' ? isOther(u) : u.Status === tab))
       .sort((a, b) => String(b.RequestedAt).localeCompare(String(a.RequestedAt)));
     const count = k => users.filter(u => k === 'all' || (k === 'other' ? isOther(u) : u.Status === k)).length;
-    view.innerHTML = pageHead('ผู้ใช้งาน', 'ผู้ใช้ใหม่ล็อกอินด้วย Google แล้วกรอกแบบขออนุญาต (คำนำหน้า ชื่อ-สกุล หน่วยงาน กลุ่มงาน หน้าที่ต่อแผนงาน) จึงเข้าสู่สถานะ "รออนุมัติ" — สิทธิ์เปลี่ยนมีผลทันที', '') +
+    view.innerHTML = pageHead('ผู้ใช้งาน', 'ผู้ใช้ใหม่ล็อกอินด้วย Google แล้วกรอกแบบขออนุญาต (คำนำหน้า ชื่อ-สกุล หน่วยงาน กลุ่มงาน หน้าที่ต่อแผนงาน) จึงเข้าสู่สถานะ "รออนุมัติ" — สิทธิ์เปลี่ยนมีผลทันที', '') + verWarn +
       '<div class="tabs">' + USER_TABS.map(t => '<button class="tab' + (t[0] === tab ? ' on' : '') + '" data-act="userTab" data-id="' + t[0] + '">' + t[1] + ' <span class="count">' + count(t[0]) + '</span></button>').join('') + '</div>' +
       '<div class="card table-card"><div class="table-wrap"><table class="table"><thead><tr><th>ผู้ใช้</th><th>กลุ่มงาน / ผู้รับผิดชอบ</th><th>บทบาท</th><th>สถานะ</th><th>เข้าล่าสุด</th><th></th></tr></thead><tbody>' +
       (rows.length ? rows.map(u => '<tr><td><div class="user-cell">' + (u.Picture ? '<img src="' + esc(u.Picture) + '" alt="" referrerpolicy="no-referrer">' : '<span class="avatar">' + esc((u.Name || u.Email).charAt(0)) + '</span>') + '<div><b>' + esc(u.Name) + '</b><div class="muted small">' + esc(u.Email) + '</div></div></div></td>' +
-        '<td>' + esc(u.Department || '-') + (deptBad(u) ? '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> กลุ่มงานไม่ตรงทะเบียน — แก้ไขแผนของกลุ่มงานไม่ได้</div>' : '') + (u.Organization ? '<div class="muted small">' + esc(u.Organization) + '</div>' : '') + (u.PlanRole ? '<div class="muted small"><i class="fas fa-user-tag"></i> ' + esc(u.PlanRole) + '</div>' : '') + '<div class="muted small">' + esc(u.PersonName || '') + '</div>' + (u.dupName ? '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> ชื่อซ้ำกับบัญชีอื่น</div>' : '') + (u.RequestNote ? '<div class="muted small" title="' + esc(u.RequestNote) + '">“' + esc(String(u.RequestNote).slice(0, 60)) + '”</div>' : '') + '</td><td>' + esc(ROLE_LABEL[u.Role] || u.Role) + '</td><td>' + App.badge(ST_LABEL[u.Status] || u.Status, ST_CLASS[u.Status]) + '<div class="muted small">' + (u.RequestedAt ? 'ขอเมื่อ ' + App.dateTime(u.RequestedAt) : '') + '</div></td><td class="muted small">' + (u.LastLoginAt ? App.dateTime(u.LastLoginAt) : '—') + '</td><td class="act-cell wrap">' + userButtons(u) + '</td></tr>').join('') :
+        '<td>' + esc(u.Department || '-') + reqNote(u) + (deptBad(u) ? '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> กลุ่มงานไม่ตรงทะเบียน — แก้ไขแผนของกลุ่มงานไม่ได้</div>' : '') + (u.Organization ? '<div class="muted small">' + esc(u.Organization) + '</div>' : '') + (u.PlanRole ? '<div class="muted small"><i class="fas fa-user-tag"></i> ' + esc(u.PlanRole) + '</div>' : '') + '<div class="muted small">' + esc(u.PersonName || '') + '</div>' + (u.dupName ? '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> ชื่อซ้ำกับบัญชีอื่น</div>' : '') + (u.RequestNote ? '<div class="muted small" title="' + esc(u.RequestNote) + '">“' + esc(String(u.RequestNote).slice(0, 60)) + '”</div>' : '') + '</td><td>' + esc(ROLE_LABEL[u.Role] || u.Role) + (u.Status !== 'approved' && u.suggestRole && u.suggestRole !== u.Role ? '<div class="muted small">แนะนำสิทธิ์: <b>' + esc(ROLE_LABEL[u.suggestRole] || u.suggestRole) + '</b></div>' : '') + '</td><td>' + App.badge(ST_LABEL[u.Status] || u.Status, ST_CLASS[u.Status]) + '<div class="muted small">' + (u.RequestedAt ? 'ขอเมื่อ ' + App.dateTime(u.RequestedAt) : '') + '</div></td><td class="muted small">' + (u.LastLoginAt ? App.dateTime(u.LastLoginAt) : '—') + '</td><td class="act-cell wrap">' + userButtons(u) + '</td></tr>').join('') :
         '<tr><td colspan="6" class="empty">ไม่มีรายการ</td></tr>') + '</tbody></table></div></div>';
   };
   function userButtons(u) {
@@ -64,6 +67,13 @@
   const deptNames = () => { const D = (App.masters().data || {}).departments || []; return { active: uniq(D.filter(d => d.Active !== false).map(d => d.Name)), all: uniq(D.map(d => d.Name)) }; };
   /** บัญชีของ รพ. นี้หรือไม่ (หน่วยงานว่าง = บัญชีเดิมก่อนมีแบบขออนุญาต ถือเป็น รพ. — ตรงกับฝั่งเซิร์ฟเวอร์) */
   const isHosp = org => { const o = dNorm(org), h = dNorm(App.masters().org); return !o || !h || o === h; };
+  /** แถวผู้ขอ (ยังไม่อนุมัติ): ข้อมูลที่ผู้ขอกรอกไม่ครบ/ไม่ตรงทะเบียน */
+  const reqNote = u => {
+    if (u.Status !== 'pending' && u.Status !== 'new') return '';
+    if (u.profileMissing) return u.Status === 'new' ? '' : '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> ไม่มีข้อมูลแบบขออนุญาต (ผู้ขอยังไม่ได้กรอก หรือ Apps Script ยังเป็นเวอร์ชันเก่า) — ผู้ขอจะถูกให้กรอกใหม่เมื่อเข้าสู่ระบบอีกครั้ง</div>';
+    if (u.Department && deptNames().all.indexOf(u.Department) < 0) { const sg = suggestDept(u.Department, deptNames().active); return '<div class="small" style="color:var(--amber)"><i class="fas fa-triangle-exclamation"></i> กลุ่มงานที่ผู้ขอพิมพ์ไม่ตรงทะเบียน' + (sg && sg.name ? ' — น่าจะเป็น “' + esc(sg.name) + '”' : '') + '</div>'; }
+    return '';
+  };
   /** เจ้าหน้าที่ของ รพ. ที่กลุ่มงานไม่ตรงทะเบียน = แก้ไขแผนของกลุ่มงานไม่ได้ */
   const deptBad = u => u.Status === 'approved' && u.Role === 'user' && isHosp(u.Organization) && deptNames().all.indexOf(u.Department) < 0;
 
@@ -92,7 +102,8 @@
       '<small id="dept-note" role="status" aria-live="polite"></small><div id="dept-sug" class="small" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center"></div></div>';
     const warn = (legacy && !preset && approving) ? '<div class="alert info" style="margin-bottom:12px"><i class="fas fa-triangle-exclamation"></i> กลุ่มงานที่ผู้ขอพิมพ์เอง (“' + esc(legacy) + '”) ไม่ตรงทะเบียน' + (sg && sg.alts.length ? ' — อาจเป็น: ' + sg.alts.map(esc).join(' / ') : '') + ' — ต้องเลือกกลุ่มงานที่ถูกต้องจากรายการก่อนให้สิทธิ์เจ้าหน้าที่ (ถ้ายังไม่มีในทะเบียน ให้เพิ่มที่ ข้อมูลหลัก › กลุ่มงาน ก่อน)</div>' : '';
     const roleHelp = '<p class="muted small" style="margin:0 0 10px"><b>เจ้าหน้าที่</b> = บันทึกความคืบหน้า/เบิกจ่าย/แนบหลักฐาน/ส่งสรุป เฉพาะโครงการของ<u>กลุ่มงานตนเอง</u> (รายละเอียดโครงการ-กิจกรรม-งบ แอดมินเป็นผู้กรอก) · <b>ผู้ดูข้อมูล</b> = ดูอย่างเดียว · <b>แอดมิน</b> = จัดการทั้งหมด</p>';
-    const html = info + warn + roleHelp + '<div class="form-grid">' + App.field({ name: 'name', label: 'ชื่อที่แสดง', value: u.Name, full: true }) +
+    const noProfile = !u.FirstName && u.Status !== 'approved' ? '<div class="alert info" style="margin-bottom:12px"><i class="fas fa-triangle-exclamation"></i> บัญชีนี้ไม่มีข้อมูลแบบขออนุญาต (กลุ่มงาน/หน่วยงาน/หน้าที่) — กรอกให้ครบก่อนอนุมัติ หรือให้ผู้ขอเข้าสู่ระบบแล้วกรอกใหม่</div>' : '';
+    const html = info + noProfile + warn + roleHelp + '<div class="form-grid">' + App.field({ name: 'name', label: 'ชื่อที่แสดง', value: u.Name, full: true }) +
       App.field({ name: 'role', label: 'บทบาท', type: 'select', noBlank: true, options: [{ v: 'user', l: ROLE_LABEL.user }, { v: 'viewer', l: ROLE_LABEL.viewer }, { v: 'admin', l: ROLE_LABEL.admin }], value: sugRole, full: true }) +
       deptField +
       App.field({ name: 'planRole', label: 'หน้าที่ต่อแผนงาน', type: 'select', options: ['ผู้รับผิดชอบหลัก', 'ผู้รับผิดชอบร่วม', 'ผู้ประสานงาน', 'หัวหน้าหน่วยงาน'], value: u.PlanRole }) +
