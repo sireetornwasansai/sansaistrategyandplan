@@ -189,14 +189,14 @@
 
   // ---------- ไฟล์ ----------
   const EXT_OK = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'doc', 'docx', 'xls', 'xlsx'];
-  App.uploadFile = function (file) {
+  App.uploadFile = function (file, planId) {
     return new Promise((resolve, reject) => {
       const ext = (file.name.split('.').pop() || '').toLowerCase();
       if (EXT_OK.indexOf(ext) < 0) return reject(new Error('รองรับเฉพาะไฟล์ PDF, รูปภาพ, Word, Excel'));
       const mb = ((M().limits || {}).maxUploadMb) || 10; if (file.size > mb * 1024 * 1024) return reject(new Error('ไฟล์ใหญ่เกิน ' + mb + 'MB'));
       const fr = new FileReader();
       fr.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
-      fr.onload = () => App.api('file.upload', { name: file.name, data: String(fr.result) }).then(resolve, reject);
+      fr.onload = () => App.api('file.upload', { name: file.name, data: String(fr.result), planId: planId || '' }).then(resolve, reject);
       fr.readAsDataURL(file);
     });
   };

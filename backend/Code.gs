@@ -33,7 +33,7 @@
  * =====================================================================================
  */
 
-var APP_VERSION = '2.10.0';
+var APP_VERSION = '2.11.0';
 var TZ_ = (function () { try { return PropertiesService.getScriptProperties().getProperty('TIMEZONE') || 'Asia/Bangkok'; } catch (e) { return 'Asia/Bangkok'; } })();
 /** ค่าตั้งต้นของ Script Properties ที่ปรับได้ (ไม่ตั้ง = ใช้ค่านี้) — setupSheet() จะเขียนค่าเหล่านี้ลง Script Properties ให้เห็นและแก้ได้ */
 var PROP_DEFAULTS_ = { TIMEZONE: 'Asia/Bangkok', ORG_NAME: 'โรงพยาบาลสันทราย จังหวัดเชียงใหม่', SESSION_HOURS: '12', MAX_UPLOAD_MB: '10', MAX_ATTACH_MB: '20', MAX_ATTACH_PER_PLAN: '50',
@@ -99,7 +99,7 @@ var ADJ_TYPES_ = ['คืนเงิน', 'ปรับลดงบ', 'ปร�
 var DEFAULT_SETTINGS_ = [
   ['CurrentYear', '2569', 'ปีงบประมาณปัจจุบัน (พ.ศ.)'],
   ['ExcludeCancelledFromRate', 'TRUE', 'TRUE = ร้อยละเบิกจ่ายไม่นับงบของกิจกรรมที่ยกเลิก/ไม่เบิก (แนะนำ)'],
-  ['UserEditScope', 'dept', 'dept = เจ้าหน้าที่แก้ไขได้เฉพาะแผนของกลุ่มงานตนเอง (หรือแผนที่ตนเองเป็นผู้รับผิดชอบ) | own = เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ | all = ทุกแผน'],
+  ['UserEditScope', 'dept', 'dept = เจ้าหน้าที่แก้ไขได้เฉพาะแผนของกลุ่มงานตนเอง (หรือแผนที่ตนเองเป็นผู้รับผิดชอบ) | own = เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ  (ไม่มีตัวเลือก all แล้ว — ค่าอื่นทุกชนิดถือเป็น dept)'],
   ['SummaryStartMonth', '8', 'เดือนเริ่มช่วงส่งสรุปโครงการ (1–12) — ทุกโครงการต้องส่งสรุปในช่วงนี้ ค่าตั้งต้น 8 = สิงหาคม'],
   ['FileSharing', 'link', 'link = แชร์ไฟล์หลักฐานแบบใครมีลิงก์เปิดดูได้ | private = ไม่แชร์'],
   ['ImportLocked', 'FALSE', 'TRUE = ล็อกไม่ให้รัน runImport ซ้ำ (ตั้งเป็น TRUE อัตโนมัติหลังนำเข้าเสร็จ)'],
@@ -1020,6 +1020,8 @@ function getSettings_() {
   var s = {};
   readAll_('Settings').forEach(function (r) { s[r.Key] = String(r.Value); });
   DEFAULT_SETTINGS_.forEach(function (d) { if (s[d[0]] === undefined) s[d[0]] = d[1]; });
+  // v2.11: ขอบเขตการแก้ไขของเจ้าหน้าที่ปฏิเสธไว้ก่อนเสมอ — เหลือเพียง own | dept (ค่าว่าง/พิมพ์ผิด/all เดิม = dept)
+  s.UserEditScope = String(s.UserEditScope).trim().toLowerCase() === 'own' ? 'own' : 'dept';
   CACHE_.settings = s;
   return s;
 }
@@ -1276,7 +1278,7 @@ function usersList_(admin) {
 function usersUpdate_(admin, p) {
   var u = userRow_(p.email);
   if (!u) fail_('NOT_FOUND', 'ไม่พบผู้ใช้');
-  var before = u.Status + '/' + u.Role;
+  var before = u.Status + '/' + u.Role, mails = []; // ส่งอีเมลหลังตรวจ/บันทึกสำเร็จเท่านั้น
   var isSelf = String(u.Email).toLowerCase() === String(admin.Email).toLowerCase();
 
   if (p.status !== undefined) {
@@ -1287,14 +1289,14 @@ function usersUpdate_(admin, p) {
     if (p.status === 'rejected' && prevStatus !== 'rejected' && str_(p.note).length < 3) fail_('VALIDATION', 'กรุณาระบุเหตุผลที่ไม่อนุมัติ (ผู้ขอจะเห็นเหตุผลนี้)');
     u.Status = p.status;
     if (p.status === 'rejected' && prevStatus !== 'rejected') {
-      sendMailSafe_(u.Email, 'ผลการพิจารณาคำขอเข้าใช้งานระบบแผนงานโครงการ ' + orgName_(),
+      mails.push([u.Email, 'ผลการพิจารณาคำขอเข้าใช้งานระบบแผนงานโครงการ ' + orgName_(),
         'สวัสดีคุณ ' + (u.Name || '') + '\nคำขอเข้าใช้งานระบบของท่านยังไม่ได้รับอนุมัติ\nเหตุผล: ' + str_(p.note) +
-        '\nหากต้องการแก้ไขข้อมูลและยื่นคำขอใหม่ ให้เข้าสู่ระบบด้วยบัญชี Google เดิมอีกครั้ง หรือติดต่อผู้ดูแลระบบ' + appLink_());
+        '\nหากต้องการแก้ไขข้อมูลและยื่นคำขอใหม่ ให้เข้าสู่ระบบด้วยบัญชี Google เดิมอีกครั้ง หรือติดต่อผู้ดูแลระบบ' + appLink_()]);
     }
     if (p.status === 'approved' && !wasApproved) {
       u.ApprovedBy = admin.Email; u.ApprovedAt = nowIso_();
-      sendMailSafe_(u.Email, 'บัญชีของท่านได้รับอนุมัติแล้ว - ระบบแผนงานโครงการ ' + orgName_(),
-        'สวัสดีคุณ ' + (u.Name || '') + '\nผู้ดูแลระบบอนุมัติสิทธิ์เข้าใช้งานแล้ว สามารถเข้าสู่ระบบด้วยบัญชี Google นี้ได้ทันที' + appLink_());
+      mails.push([u.Email, 'บัญชีของท่านได้รับอนุมัติแล้ว - ระบบแผนงานโครงการ ' + orgName_(),
+        'สวัสดีคุณ ' + (u.Name || '') + '\nผู้ดูแลระบบอนุมัติสิทธิ์เข้าใช้งานแล้ว สามารถเข้าสู่ระบบด้วยบัญชี Google นี้ได้ทันที' + appLink_()]);
     }
   }
   if (p.role !== undefined) {
@@ -1311,9 +1313,67 @@ function usersUpdate_(admin, p) {
   }
   if (p.personName !== undefined) u.PersonName = str_(p.personName);
   if (p.note !== undefined) u.Note = str_(p.note);
+  if (u.Status === 'approved' && u.Role === 'user') { // v2.11: ให้สิทธิ์เจ้าหน้าที่ได้เมื่อกลุ่มงานตรงทะเบียน (สิทธิ์แก้ไขอิงกลุ่มงาน)
+    if (isHospitalUser_(u)) {
+      var md = masterDept_(u.Department);
+      if (!md) fail_('VALIDATION', 'กลุ่มงาน' + (str_(u.Department) ? ' “' + str_(u.Department) + '”' : 'ยังไม่ได้ระบุ') + ' ไม่ตรงทะเบียนกลุ่มงาน — กรุณาเลือกกลุ่มงานที่ถูกต้องก่อนให้สิทธิ์เจ้าหน้าที่ (ถ้ากลุ่มงานยังไม่มีในทะเบียน ให้เพิ่มที่ ตั้งค่าระบบ › กลุ่มงาน ก่อน)');
+      u.Department = md;
+    }
+    if (str_(u.PersonName) && !readAll_('People').some(function (x) { return normName_(x.Name) === normName_(u.PersonName); })) fail_('VALIDATION', 'ผู้รับผิดชอบที่ผูกไว้ไม่อยู่ในทะเบียนผู้รับผิดชอบ');
+  }
   update_('Users', u._row, u);
+  mails.forEach(function (m) { sendMailSafe_(m[0], m[1], m[2]); });
   audit_(admin.Email, 'แก้ไขผู้ใช้', 'User', u.Email, before + ' -> ' + u.Status + '/' + u.Role);
   return stripRow_(u);
+}
+
+// ---------------------------------------------------------------------------------
+// ตรวจสิทธิ์และกลุ่มงาน (แอดมิน) — v2.11
+//   access.audit        ดูภาพรวม: แผนที่ยังไม่ระบุกลุ่มงาน · ผู้ใช้ที่สิทธิ์ไม่สมบูรณ์ · กลุ่มงานซ้ำในทะเบียน
+//   plans.backfillDept  เติมกลุ่มงานให้แผนที่ว่าง จากกลุ่มงานของผู้รับผิดชอบ (ทะเบียน People หรือบัญชีผู้ใช้ที่อนุมัติแล้ว) — ไม่ทับค่าที่มีอยู่
+// ---------------------------------------------------------------------------------
+function deptBackfillPlan_() {
+  var byPerson = {};
+  readAll_('People').forEach(function (x) { var d = masterDept_(x.Department); if (d && normName_(x.Name)) byPerson[normName_(x.Name)] = d; });
+  readAll_('Users').forEach(function (u) { // บัญชีที่อนุมัติแล้วและผูกกับผู้รับผิดชอบ (ไม่ทับค่าจากทะเบียน People)
+    if (u.Status !== 'approved' || !str_(u.PersonName) || !isHospitalUser_(u)) return;
+    var d = masterDept_(u.Department), k = normName_(u.PersonName);
+    if (d && k && !byPerson[k]) byPerson[k] = d;
+  });
+  var plans = readAll_('Plans').filter(function (x) { return !bool_(x.IsDeleted); });
+  var noDept = plans.filter(function (x) { return !str_(x.Department); }), fix = [], unresolved = {};
+  noDept.forEach(function (pl) {
+    var d = byPerson[normName_(pl.Owner)];
+    if (d) fix.push({ pl: pl, dept: d }); else { var o = str_(pl.Owner) || '(ไม่ระบุผู้รับผิดชอบ)'; unresolved[o] = (unresolved[o] || 0) + 1; }
+  });
+  return { total: plans.length, noDept: noDept.length, fix: fix, unresolved: unresolved };
+}
+function accessAudit_(admin) {
+  var b = deptBackfillPlan_();
+  var owners = Object.keys(b.unresolved).map(function (k) { return { owner: k, plans: b.unresolved[k] }; }).sort(function (a, c) { return c.plans - a.plans; });
+  var issues = [];
+  readAll_('Users').forEach(function (u) {
+    if (u.Status !== 'approved' || u.Role !== 'user') return;
+    var nm = u.Name || u.Email;
+    if (!isHospitalUser_(u)) { if (!str_(u.PersonName)) issues.push({ email: u.Email, name: nm, issue: 'หน่วยงานภายนอกและยังไม่ผูกกับผู้รับผิดชอบ — แก้ไขแผนใดไม่ได้' }); return; }
+    if (!masterDept_(u.Department)) issues.push({ email: u.Email, name: nm, issue: 'กลุ่มงาน' + (str_(u.Department) ? ' “' + str_(u.Department) + '”' : 'ว่าง') + ' ไม่ตรงทะเบียน — แก้ไขแผนของกลุ่มงานตนเองไม่ได้ (ให้แอดมินเลือกกลุ่มงานใหม่ที่เมนูผู้ใช้)' });
+  });
+  var seen = {}, dups = [];
+  readAll_('Departments').forEach(function (d) { var k = normDept_(d.Name); if (!k) return; if (seen[k]) { if (dups.indexOf(String(d.Name)) < 0) dups.push(String(d.Name)); } else seen[k] = true; });
+  return { scope: editScope_(), maintenance: maintenanceOn_(),
+    plans: { total: b.total, noDept: b.noDept, fixable: b.fix.length, unresolvedOwners: owners.slice(0, 40), unresolvedOwnerCount: owners.length },
+    users: { issues: issues.slice(0, 100), issueCount: issues.length }, duplicateDepartments: dups };
+}
+function plansBackfillDept_(admin, p) {
+  var b = deptBackfillPlan_(), now = nowIso_(), rows = [];
+  b.fix.forEach(function (f) {
+    var o = stripRow_(f.pl); o.Department = f.dept; o.UpdatedAt = now; o.UpdatedBy = admin.Email;
+    update_('Plans', f.pl._row, o);
+    rows.push(chgRow_(admin, 'Plan', f.pl.PlanId, f.pl.PlanId, 'กลุ่มงาน', '', f.dept, 'เติมกลุ่มงานอัตโนมัติจากผู้รับผิดชอบ (v2.11)'));
+  });
+  writeChanges_(rows);
+  audit_(admin.Email, 'เติมกลุ่มงานให้แผน', 'Plan', String(b.fix.length), 'เติม ' + b.fix.length + ' / ไม่มีกลุ่มงาน ' + b.noDept + ' แผน');
+  return { updated: b.fix.length, stillMissing: b.noDept - b.fix.length };
 }
 
 function usersDelete_(admin, p) {
@@ -1425,7 +1485,7 @@ function settingsSave_(admin, p) {
   if (!def) fail_('VALIDATION', 'ไม่รู้จักการตั้งค่า ' + key);
   if (key === 'CurrentYear' && !/^25\d\d$/.test(val)) fail_('VALIDATION', 'ปีงบประมาณต้องเป็น พ.ศ. 4 หลัก เช่น 2569');
   if ((key === 'ExcludeCancelledFromRate' || key === 'ImportLocked' || key === 'RequireReasonAfterApproval' || key === 'LockClosedPlans' || key === 'UserEditPlanDetail') && ['TRUE', 'FALSE'].indexOf(val.toUpperCase()) < 0) fail_('VALIDATION', 'ค่าต้องเป็น TRUE หรือ FALSE');
-  if (key === 'UserEditScope' && ['dept', 'own', 'all'].indexOf(val) < 0) fail_('VALIDATION', 'ค่าต้องเป็น dept, own หรือ all');
+  if (key === 'UserEditScope' && ['dept', 'own'].indexOf(val) < 0) fail_('VALIDATION', 'ค่าต้องเป็น dept หรือ own (ไม่มีตัวเลือกให้แก้ได้ทุกแผนแล้ว)');
   if (key === 'FileSharing' && ['link', 'private'].indexOf(val) < 0) fail_('VALIDATION', 'ค่าต้องเป็น link หรือ private');
   if ((key === 'SummaryStartMonth' || key === 'SummaryEndMonth') && !(/^\d{1,2}$/.test(val) && num_(val) >= 1 && num_(val) <= 12)) fail_('VALIDATION', 'เดือนต้องเป็นตัวเลข 1–12');
   if (/^(TRUE|FALSE)$/i.test(val)) val = val.toUpperCase();
@@ -1624,29 +1684,57 @@ function plansGet_(user, p) {
     canEdit: canEditPlan_(user, pl) && !(pl.Status === 'ปิด' && user.Role !== 'admin' && getSettings_().LockClosedPlans === 'TRUE'),
     canEditDetail: canEditPlan_(user, pl) && canEditDetail_(user) && !(pl.Status === 'ปิด' && user.Role !== 'admin' && getSettings_().LockClosedPlans === 'TRUE'),
     locked: pl.Status === 'ปิด' && getSettings_().LockClosedPlans === 'TRUE',
+    denyMessage: denyMessage_(user, pl),
     reasonRequired: reasonRequired_(pl),
     deletedActivities: readAll_('Activities').filter(function (a) { return a.PlanId === p.planId && bool_(a.IsDeleted); }).map(function (a) { return { ActId: a.ActId, No: String(a.No), Name: a.Name }; }) };
 }
 
 function normDept_(s) { return String(s || '').replace(/\s+/g, '').toLowerCase(); }
-/** แก้ไข "รายละเอียดแผน/กิจกรรม/งบ" ได้หรือไม่ — แอดมินเสมอ; เจ้าหน้าที่ต้องเปิด UserEditPlanDetail = TRUE */
+/** ชื่อกลุ่มงานตามทะเบียน (Departments) ที่ตรงกับข้อความที่ให้มา (ไม่สนช่องว่าง/ตัวพิมพ์) — ไม่พบคืน '' */
+function masterDept_(name) {
+  var n = normDept_(name); if (!n) return '';
+  var rows = readAll_('Departments');
+  for (var i = 0; i < rows.length; i++) if (normDept_(rows[i].Name) === n) return String(rows[i].Name).trim();
+  return '';
+}
+/** ขอบเขตที่ใช้จริง: 'own' | 'dept' (getSettings_ ปรับให้แล้ว — ค่าอื่นทุกชนิดเป็น dept) */
+function editScope_() { return getSettings_().UserEditScope === 'own' ? 'own' : 'dept'; }
+/** ผู้ใช้สังกัด รพ. นี้หรือไม่ (หน่วยงานว่าง = บัญชีเดิมก่อน v2.7 ถือเป็น รพ.) — ผู้ใช้หน่วยงานภายนอกไม่ได้สิทธิ์ตามกลุ่มงาน */
+function isHospitalUser_(user) { var o = normDept_(user.Organization); return !o || o === normDept_(orgName_()); }
+/** แก้ detail ของแผนได้หรือไม่ (รายละเอียดแผน/กิจกรรม/งบ) — แอดมินเสมอ; เจ้าหน้าที่ต้องเปิด UserEditPlanDetail = TRUE */
 function canEditDetail_(user) {
   return user.Role === 'admin' || (user.Role === 'user' && getSettings_().UserEditPlanDetail === 'TRUE');
 }
-/** แก้ไขแผนได้หรือไม่ (บันทึกความคืบหน้า/เบิกจ่าย/หลักฐาน/ส่งสรุป) — ขอบเขต UserEditScope: dept = แผนของกลุ่มงานตนเอง */
+/**
+ * แก้ไขแผนได้หรือไม่ (บันทึกความคืบหน้า/เบิกจ่าย/หลักฐาน/แนบไฟล์/ส่งสรุป) — v2.11 ปฏิเสธไว้ก่อน (fail-closed)
+ *  • แอดมิน = ได้ทุกแผน · ผู้ดูข้อมูล = ไม่ได้
+ *  • เจ้าหน้าที่ = แผนที่ตนเองเป็นผู้รับผิดชอบ (ผูก PersonName) หรือ (scope=dept) แผนที่ "กลุ่มงานตรงกันเป๊ะ" และผู้ใช้สังกัด รพ.
+ *  • แผนที่ไม่ระบุกลุ่มงาน หรือผู้ใช้ที่ยังไม่มีกลุ่มงาน จะไม่เข้าเงื่อนไขกลุ่มงาน (ไม่เปิดกว้างโดยปริยาย)
+ */
 function canEditPlan_(user, plan) {
   if (user.Role === 'admin') return true;
   if (user.Role !== 'user') return false;
-  var scope = getSettings_().UserEditScope;
-  if (scope !== 'own' && scope !== 'dept') return true;
-  var mine = !!user.PersonName && String(plan.Owner) === String(user.PersonName);
-  if (scope === 'dept') { var d = normDept_(user.Department); return mine || (!!d && normDept_(plan.Department) === d); }
-  return mine;
+  var mine = !!str_(user.PersonName) && str_(plan.Owner) === str_(user.PersonName);
+  if (mine) return true;
+  if (editScope_() !== 'dept' || !isHospitalUser_(user)) return false;
+  var d = normDept_(user.Department);
+  return !!d && normDept_(plan.Department) === d;
+}
+/** ข้อความอธิบายเหตุที่แก้ไขแผนนี้ไม่ได้ (ใช้ทั้งหน้าเว็บและข้อความผิดพลาด) */
+function denyMessage_(user, plan) {
+  var locked = plan.Status === 'ปิด' && getSettings_().LockClosedPlans === 'TRUE';
+  if (canEditPlan_(user, plan)) return locked && user.Role !== 'admin' ? 'แผนนี้อยู่ในสถานะ "ปิด" แก้ไขได้เฉพาะแอดมิน' : '';
+  if (user.Role !== 'user') return 'บัญชีของท่านดูข้อมูลได้อย่างเดียว';
+  if (editScope_() === 'own') return 'ท่านแก้ไขได้เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ';
+  if (!isHospitalUser_(user)) return 'บัญชีหน่วยงานภายนอกแก้ไขได้เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ';
+  if (!str_(user.Department)) return 'บัญชีของท่านยังไม่ได้กำหนดกลุ่มงาน — กรุณาแจ้งแอดมิน';
+  if (!str_(plan.Department)) return 'แผนนี้ยังไม่ระบุกลุ่มงาน จึงแก้ไขได้เฉพาะผู้รับผิดชอบแผนและแอดมิน — กรุณาแจ้งแอดมิน';
+  return 'แผนนี้เป็นของ "' + str_(plan.Department) + '" — ท่านแก้ไขได้เฉพาะแผนของกลุ่มงานตนเอง (' + str_(user.Department) + ')';
 }
 function mustEditPlan_(user, planId) {
   var pl = findBy_('Plans', 'PlanId', planId);
   if (!pl || bool_(pl.IsDeleted)) fail_('NOT_FOUND', 'ไม่พบแผนงาน');
-  if (!canEditPlan_(user, pl)) fail_('FORBIDDEN', getSettings_().UserEditScope === 'dept' ? 'ท่านแก้ไขได้เฉพาะแผนของกลุ่มงานตนเอง (หากกลุ่มงานของท่านไม่ตรงกับทะเบียน กรุณาแจ้งแอดมิน)' : 'ท่านแก้ไขได้เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ');
+  if (!canEditPlan_(user, pl)) fail_('FORBIDDEN', denyMessage_(user, pl));
   if (pl.Status === 'ปิด' && user.Role !== 'admin' && getSettings_().LockClosedPlans === 'TRUE') fail_('LOCKED', 'แผนนี้อยู่ในสถานะ "ปิด" แก้ไขได้เฉพาะแอดมิน');
   return pl;
 }
@@ -1753,6 +1841,18 @@ function plansSave_(user, p) {
   var dept = str_(pick('Department'));
   if (!dept) { var pr = readAll_('People').filter(function (x) { return String(x.Name).trim() === owner && x.Department; })[0]; if (pr) dept = String(pr.Department); }
   if (dept && !findBy_('Departments', 'Name', dept)) fail_('VALIDATION', 'ไม่พบกลุ่มงานนี้ในข้อมูลหลัก');
+  if (user.Role !== 'admin') { // เจ้าหน้าที่: สร้างแผนได้เฉพาะของกลุ่มงานตนเอง และย้ายแผนไปกลุ่มงานอื่นไม่ได้
+    if (isNew) {
+      var myDept = isHospitalUser_(user) ? masterDept_(user.Department) : '';
+      if (editScope_() === 'dept' && !myDept) fail_('FORBIDDEN', 'บัญชีของท่านยังไม่ได้กำหนดกลุ่มงานที่ถูกต้อง จึงสร้างแผนไม่ได้ — กรุณาแจ้งแอดมิน');
+      dept = myDept;
+      if (!canEditPlan_(user, { Owner: owner, Department: dept })) fail_('FORBIDDEN', 'ท่านสร้างแผนได้เฉพาะแผนของกลุ่มงานตนเอง' + (editScope_() === 'own' ? ' โดยต้องเป็นผู้รับผิดชอบแผน' : ''));
+    } else {
+      var oldDept = str_(old.Department);
+      if (oldDept && dept !== oldDept) fail_('FORBIDDEN', 'การย้ายแผนไปกลุ่มงานอื่นทำได้เฉพาะแอดมิน');
+      dept = oldDept;
+    }
+  }
   var type = str_(pick('PlanType'));
   if (type && !findBy_('PlanTypes', 'Code', type)) fail_('VALIDATION', 'ประเภทแผนไม่ถูกต้อง');
   var status = str_(pick('Status')) || 'ร่าง';
@@ -1945,6 +2045,7 @@ function plansDuplicate_(user, p) {
   ids.forEach(function (id) {
     var pl = findBy_('Plans', 'PlanId', id);
     if (!pl || bool_(pl.IsDeleted)) return;
+    if (!canEditPlan_(user, pl)) fail_('FORBIDDEN', 'คัดลอกได้เฉพาะแผนที่ท่านมีสิทธิ์แก้ไข — แผน "' + str_(pl.Name).substring(0, 60) + '" ' + (denyMessage_(user, pl) || 'ไม่อยู่ในสิทธิ์ของท่าน'));
     var key = pl.FundCode;
     seqNext[key] = seqNext[key] === undefined ? num_(nextSeq_(toYear, pl.FundCode)) : seqNext[key] + 1;
     var o = stripRow_(pl);
@@ -2310,6 +2411,10 @@ function fixList_(user, p) {
 function fixResolve_(user, p) {
   var r = findBy_('FixQueue', 'FixId', p.fixId);
   if (!r) fail_('NOT_FOUND', 'ไม่พบรายการ');
+  if (user.Role !== 'admin') { // เจ้าหน้าที่ปิดได้เฉพาะรายการของแผนที่ตนมีสิทธิ์แก้ไข
+    if (!str_(r.PlanId)) fail_('FORBIDDEN', 'รายการนี้ไม่ผูกกับแผนงาน ปิดได้เฉพาะแอดมิน');
+    mustEditPlan_(user, r.PlanId);
+  }
   var o = stripRow_(r); o.Resolved = p.resolved !== false; o.ResolvedBy = o.Resolved ? user.Email : ''; o.ResolvedAt = o.Resolved ? nowIso_() : '';
   update_('FixQueue', r._row, o);
   return { ok: true };
@@ -2345,6 +2450,7 @@ function appFolder_() {
   return it.hasNext() ? it.next() : DriveApp.createFolder(name);
 }
 function fileUpload_(user, p) {
+  if (user.Role !== 'admin' || p.planId) mustEditPlan_(user, p.planId); // v2.11: อัปโหลดได้เมื่อมีสิทธิ์แก้ไขแผนนั้นเท่านั้น
   var name = String(p.name || '').replace(/[\\\/:*?"<>|\r\n]+/g, '_').substring(0, 120) || 'file';
   var ext = (name.split('.').pop() || '').toLowerCase();
   var mime = UPLOAD_TYPES_[ext];
@@ -3138,6 +3244,8 @@ var ACTIONS_ = {
   'users.list':       { role: 'admin', fn: usersList_ },
   'users.update':     { role: 'admin', write: true, fn: usersUpdate_ },
   'users.delete':     { role: 'admin', write: true, fn: usersDelete_ },
+  'access.audit':     { role: 'admin', fn: accessAudit_ },
+  'plans.backfillDept': { role: 'admin', write: true, fn: plansBackfillDept_ },
   'audit.list':       { role: 'admin', fn: auditList_ },
   'report.export':    { role: 'admin', write: true, fn: reportExport_ }
 };
@@ -3272,6 +3380,19 @@ function setupSheet() {
   var have = {}; readAll_('Settings').forEach(function (r) { have[r.Key] = true; });
   var missing = DEFAULT_SETTINGS_.filter(function (d) { return !have[d[0]]; });
   if (missing.length) { insertMany_('Settings', missing.map(function (d) { return { Key: d[0], Value: d[1], Description: d[2] }; })); report.seeded.push('Settings (+' + missing.length + ')'); }
+  // v2.11: ย้ายค่า UserEditScope เดิม (เช่น all / ว่าง) มาเป็น dept และอัปเดตคำอธิบาย
+  (function () {
+    var es = findBy_('Settings', 'Key', 'UserEditScope'), def = DEFAULT_SETTINGS_.filter(function (d) { return d[0] === 'UserEditScope'; })[0];
+    if (!es) return;
+    var cur = String(es.Value).trim().toLowerCase(), bad = ['dept', 'own'].indexOf(cur) < 0;
+    if (bad || String(es.Description) !== def[2]) {
+      var eo = stripRow_(es); if (bad) eo.Value = 'dept'; eo.Description = def[2]; update_('Settings', es._row, eo);
+      report.fixed.push('Settings.UserEditScope' + (bad ? ' (' + (cur || 'ว่าง') + ' → dept)' : ' (คำอธิบาย)'));
+    }
+    CACHE_ = {};
+    var nd = readAll_('Plans').filter(function (x) { return !bool_(x.IsDeleted) && !str_(x.Department); }).length;
+    if (nd) report.warnings.push('มี ' + nd + ' แผนที่ยังไม่ระบุกลุ่มงาน (เจ้าหน้าที่จะแก้ได้เฉพาะแผนที่ตนเองเป็นผู้รับผิดชอบ) — เปิดเมนู ตั้งค่าระบบ › ตรวจสิทธิ์และกลุ่มงาน เพื่อเติมให้');
+  })();
 
   var T = function (rows, cols) { return rows.map(function (r) { var o = {}; cols.forEach(function (c, i) { o[c] = r[i]; }); return o; }); };
   seedIfEmpty_('Funds', T(DEFAULT_FUNDS_, ['Code', 'Name', 'StrategySet', 'InHospitalKpi', 'SortOrder', 'Active']), report);

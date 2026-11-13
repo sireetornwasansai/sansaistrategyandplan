@@ -145,8 +145,9 @@
     const stratHtml = fund && fund.StrategySet === 'region' ? (p.StrategyRegion ? '<div><span class="muted">ยุทธศาสตร์ระดับเขต</span> ' + esc(p.StrategyRegion) + '</div>' : '') :
       strat('ยุทธศาสตร์กระทรวง', 'moph', p.StrategyMoph) + alignHtml(p) + strat('พันธกิจ สสจ.', 'mission', p.StrategyMission) + strat('ยุทธศาสตร์ สสจ.', 'prov', p.StrategyProv) + strat('ยุทธศาสตร์ รพ.', 'hosp', p.StrategyHosp);
     const kp = (l, v, cls, ico) => '<div class="card kpi sm ' + (cls || '') + '"><div class="kpi-text"><span class="kpi-label">' + l + '</span><b class="kpi-val">' + v + '</b></div><div class="icon-box"><i class="fas ' + (ico || 'fa-coins') + '"></i></div></div>';
+    const roNote = (!edit && App.state.user && App.state.user.role === 'user' && g.denyMessage) ? '<div class="alert info ro-note" role="status"><i class="fas fa-lock"></i> ' + esc(g.denyMessage) + '</div>' : '';
     view.innerHTML =
-      '<a href="#/plans" class="back"><i class="fas fa-arrow-left"></i> กลับรายการแผนงาน</a>' +
+      '<a href="#/plans" class="back"><i class="fas fa-arrow-left"></i> กลับรายการแผนงาน</a>' + roNote +
       '<section class="card plan-head"><div class="ph-main"><div class="badges">' + '<span class="tag">' + esc(App.fundName(p.FundCode)) + '</span> ' + App.badge(p.Status) + ' ' + App.badge(c.execState) + (p.IsDeleted ? ' <span class="badge red">ถูกลบ</span>' : '') + '</div>' +
         '<h1>' + (p.Seq ? '<span class="muted">#' + esc(p.Seq) + '</span> ' : '') + esc(p.Name) + '</h1>' + (p.ProjectTitle ? '<p class="muted">โครงการ' + (p.ProjectNo ? ' ที่ ' + esc(p.ProjectNo) : '') + ': ' + esc(p.ProjectTitle) + '</p>' : '') +
         '<div class="meta"><div><span class="muted">ผู้รับผิดชอบ</span> ' + esc(p.Owner) + '</div><div><span class="muted">กลุ่มงาน</span> ' + esc(p.Department || '-') + '</div><div><span class="muted">ประเภทแผน</span> ' + esc(App.lookup('planTypes', p.PlanType) || '-') + '</div>' +
@@ -317,7 +318,7 @@
     App.modal({ title: 'ส่งสรุปโครงการ', html: '<div class="form-grid">' + App.field({ name: 'sent', label: 'ส่งสรุปโครงการแล้ว', type: 'checkbox', value: p.SummarySent, full: true }) +
       App.field({ name: 'date', label: 'วันที่ส่งสรุป', type: 'date', value: p.SummarySentDate || App.today() }) + App.field({ name: 'fileUrl', label: 'ลิงก์ไฟล์สรุป (ถ้ามี)', value: p.SummaryFileUrl || '', placeholder: 'https://…' }) +
       '<div class="field full"><label>หรืออัปโหลดไฟล์</label><input type="file" id="sum-file"><small id="sum-file-msg"></small></div></div>',
-      onOpen: d => d.querySelector('#sum-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; const m = d.querySelector('#sum-file-msg'); m.textContent = 'กำลังอัปโหลด…'; try { const r = await App.uploadFile(f); d.querySelector('[name=fileUrl]').value = r.url; m.textContent = '✔ อัปโหลดแล้ว'; } catch (er) { m.textContent = er.message; } }),
+      onOpen: d => d.querySelector('#sum-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; const m = d.querySelector('#sum-file-msg'); m.textContent = 'กำลังอัปโหลด…'; try { const r = await App.uploadFile(f, S.cur.plan.PlanId); d.querySelector('[name=fileUrl]').value = r.url; m.textContent = '✔ อัปโหลดแล้ว'; } catch (er) { m.textContent = er.message; } }),
       onSubmit: async d => { const v = App.values(d); await App.api('plans.markSummary', { planId: p.PlanId, sent: v.sent, date: v.date, fileUrl: v.fileUrl }); App.toast('บันทึกแล้ว', 'success'); reload(); } });
   };
 
@@ -359,7 +360,7 @@
       App.field({ name: 'EvidenceUrl', label: 'ลิงก์หลักฐานการเบิกจ่าย', value: d.EvidenceUrl || '', placeholder: 'https://…', full: true }) +
       '<div class="field full"><label>หรืออัปโหลดไฟล์หลักฐาน (PDF/รูป/Word/Excel ≤ ' + (((App.masters().limits || {}).maxUploadMb) || 10) + 'MB)</label><input type="file" id="ev-file"><small id="ev-msg"></small></div>' + App.field({ name: 'Note', label: 'หมายเหตุ', value: d.Note || '', full: true }) + '</div>';
     App.modal({ title: isNew ? 'บันทึกการเบิกจ่าย' : 'แก้ไขการเบิกจ่าย (ครั้งที่ ' + d.Seq + ')', html: html,
-      onOpen: dlg => dlg.querySelector('#ev-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; const m = dlg.querySelector('#ev-msg'); m.textContent = 'กำลังอัปโหลด…'; try { const r = await App.uploadFile(f); dlg.querySelector('[name=EvidenceUrl]').value = r.url; m.textContent = '✔ อัปโหลดแล้ว: ' + r.name; } catch (er) { m.textContent = er.message; } }),
+      onOpen: dlg => dlg.querySelector('#ev-file').addEventListener('change', async e => { const f = e.target.files[0]; if (!f) return; const m = dlg.querySelector('#ev-msg'); m.textContent = 'กำลังอัปโหลด…'; try { const r = await App.uploadFile(f, S.cur.plan.PlanId); dlg.querySelector('[name=EvidenceUrl]').value = r.url; m.textContent = '✔ อัปโหลดแล้ว: ' + r.name; } catch (er) { m.textContent = er.message; } }),
       onSubmit: async dlg => {
         const v = App.values(dlg), x = { Amount: v.Amount, ApproveDate: v.ApproveDate, PayRequestDate: v.PayRequestDate, PaidDate: v.PaidDate, EvidenceUrl: v.EvidenceUrl, Note: v.Note };
         if (isNew) { x.ActId = actId; x.PlanId = S.cur.plan.PlanId; } else x.DisbId = d.DisbId;
